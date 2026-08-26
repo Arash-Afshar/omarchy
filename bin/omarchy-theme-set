@@ -539,6 +539,7 @@ visible_theme_commands=(
 other_theme_commands=(
   omarchy-theme-set-gnome
   omarchy-theme-set-pi
+  omarchy-theme-set-omp
   omarchy-theme-set-claude
   omarchy-theme-set-hermes
   omarchy-theme-set-t3code

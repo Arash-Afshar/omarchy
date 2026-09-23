@@ -30,6 +30,12 @@ assert(
   'the lock surface conceals the wallpaper and password view during handoff'
 )
 assert(
+  /feedActive: root\.video && root\.loadBackground && !root\.concealAuthentication/.test(viewQml)
+    && /path: root\.loadBackground && !root\.concealAuthentication \? \(root\.video \? root\.videoPosterPath : root\.backgroundPath\) : ""/.test(viewQml)
+    && /visible: !root\.concealAuthentication && root\.video/.test(viewQml),
+  'concealment also suppresses the OWE poster and lock feed'
+)
+assert(
   /cursorShape: root\.concealAuthentication \? Qt\.BlankCursor : Qt\.ArrowCursor/.test(viewQml),
   'the concealed handoff hides the pointer'
 )

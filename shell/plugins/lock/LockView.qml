@@ -7,6 +7,7 @@ Item {
   id: root
 
   property string backgroundPath: ""
+  property string videoPosterPath: ""
   property int backgroundVersion: 0
   property bool fingerprintConfigured: false
   property bool authenticatingPassword: false
@@ -45,6 +46,9 @@ Item {
   readonly property var inputBorderSpec: errorState
     ? Border.surfaceSpec("lock", "border-error", Color.lock.borderError, root.outlineThickness, "border-alpha")
     : Border.surfaceSpec("lock", "border-active", Color.lock.borderActive, root.outlineThickness, "border-alpha")
+
+  readonly property bool video: Util.isVideoPath(root.backgroundPath)
+  readonly property bool feedActive: root.video && root.loadBackground && !root.concealAuthentication && !root.displaysBlank && !root.powerSaverActive
 
   signal submitPassword(string password)
   signal passwordTextEdited(string password)
@@ -92,16 +96,16 @@ Item {
 
     BackgroundMedia {
       id: wallpaper
+      objectName: "lockWallpaper"
       anchors.fill: parent
-      path: root.loadBackground && !root.concealAuthentication ? root.backgroundPath : ""
+      path: root.loadBackground && !root.concealAuthentication ? (root.video ? root.videoPosterPath : root.backgroundPath) : ""
       version: root.backgroundVersion
-      playbackEnabled: root.loadBackground && !root.concealAuthentication && !root.displaysBlank && !root.powerSaverActive
     }
 
     MultiEffect {
       anchors.fill: wallpaper
-      source: wallpaper.video ? null : wallpaper
-      visible: !root.concealAuthentication && !wallpaper.video
+      source: wallpaper
+      visible: !root.concealAuthentication
       autoPaddingEnabled: false
       blurEnabled: root.loadBackground && wallpaper.ready
       blur: 1.0
@@ -110,11 +114,22 @@ Item {
       contrast: -0.08
     }
 
-    // Qt's video output cannot be sampled by MultiEffect on every renderer.
+    // The cached poster stays behind the feed when policy pauses playback,
+    // the module is unavailable, or a new connection has not received a frame.
+    Loader {
+      id: feedLoader
+      objectName: "lockFeedLoader"
+      anchors.fill: parent
+      active: root.feedActive
+      source: "LockFeedSurface.qml"
+      visible: status === Loader.Ready
+    }
+
+    // The feed item cannot be sampled by MultiEffect on every renderer.
     // Keep video wallpapers visible and darken them slightly for legibility.
     Rectangle {
-      anchors.fill: wallpaper
-      visible: !root.concealAuthentication && wallpaper.video
+      anchors.fill: feedLoader
+      visible: !root.concealAuthentication && root.video
       color: "#22000000"
     }
 

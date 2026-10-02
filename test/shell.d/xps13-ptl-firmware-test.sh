@@ -96,6 +96,7 @@ printf 'state %s\n' "$*" >>"$TEST_LOG"
 SH
 chmod +x "$test_tmp/bin/"*
 
+test_path="$PATH"
 export PATH="$test_tmp/bin:$ROOT/bin:$PATH"
 export TEST_LOG="$test_tmp/calls" TEST_VERSION_FILE="$test_tmp/version"
 export TEST_PRODUCT_NAME="XPS 13 DX13260" TEST_INTEL_PTL=1
@@ -105,8 +106,10 @@ firmware_pending="$test_tmp/run/pending"
 # Redirect the fixed filesystem path in isolated copies, not through production environment overrides.
 export OMARCHY_PATH="$test_tmp/omarchy"
 mkdir -p "$OMARCHY_PATH/install/hardware" "$OMARCHY_PATH/migrations"
-sed "s|/run/omarchy/xps13-ptl-speaker-firmware|$firmware_pending|g" "$leaf" >"$OMARCHY_PATH/install/hardware/${leaf##*/}"
-sed "s|/run/omarchy/xps13-ptl-speaker-firmware|$firmware_pending|g" "$migration" >"$OMARCHY_PATH/migrations/${migration##*/}"
+printf -v marker_literal '%q' "$firmware_pending"
+marker_replacement=$(printf '%s' "$marker_literal" | sed 's/[\\&|]/\\&/g')
+sed "s|\"/run/omarchy/xps13-ptl-speaker-firmware\"|$marker_replacement|g" "$leaf" >"$OMARCHY_PATH/install/hardware/${leaf##*/}"
+sed "s|\"/run/omarchy/xps13-ptl-speaker-firmware\"|$marker_replacement|g" "$migration" >"$OMARCHY_PATH/migrations/${migration##*/}"
 leaf="$OMARCHY_PATH/install/hardware/${leaf##*/}"
 migration="$OMARCHY_PATH/migrations/${migration##*/}"
 
@@ -198,3 +201,12 @@ OMARCHY_XPS13_FIRMWARE_PENDING="$protected_file" run_migration
 [[ $(<"$protected_file") == "preserve me" && -e $firmware_pending && $(<"$TEST_LOG") == "$install_call"$'\nstate set reboot-required' ]] ||
   fail "the invoking user's environment cannot redirect the privileged marker write"
 pass "the invoking user's environment cannot redirect the privileged marker write"
+
+if [[ ${TEST_FIRMWARE_SPECIAL_TMPDIR:-0} != "1" ]]; then
+  special_tmpdir="$test_tmp/"'tmp &|"\$fixture'
+  mkdir -p "$special_tmpdir"
+  PATH="$test_path" TMPDIR="$special_tmpdir" TEST_FIRMWARE_SPECIAL_TMPDIR=1 \
+    bash "$ROOT/test/shell.d/xps13-ptl-firmware-test.sh" >"$test_tmp/special-path.log" 2>&1 ||
+    fail "firmware fixtures work with shell and sed metacharacters in TMPDIR" "$(<"$test_tmp/special-path.log")"
+  pass "firmware fixtures work with shell and sed metacharacters in TMPDIR"
+fi

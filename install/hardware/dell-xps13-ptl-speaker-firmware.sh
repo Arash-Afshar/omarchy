@@ -6,7 +6,8 @@ if omarchy-hw-dell-xps13-dx13260-ptl; then
     firmware_pending="/run/omarchy/xps13-ptl-speaker-firmware"
     sudo install -Dm644 /dev/null "$firmware_pending"
 
-    # [core] precedes [omarchy], so an unqualified target selects the older firmware.
+    # omarchy-pkg-add skips installed packages and cannot verify repo-qualified targets.
+    # Select [omarchy] explicitly because [core] carries the older firmware.
     sudo pacman -S --noconfirm --needed omarchy/linux-firmware-cirrus
   fi
 fi

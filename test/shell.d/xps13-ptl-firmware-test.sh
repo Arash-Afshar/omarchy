@@ -97,15 +97,23 @@ SH
 chmod +x "$test_tmp/bin/"*
 
 export PATH="$test_tmp/bin:$ROOT/bin:$PATH"
-export OMARCHY_PATH="$ROOT" TEST_LOG="$test_tmp/calls" TEST_VERSION_FILE="$test_tmp/version"
-export OMARCHY_XPS13_FIRMWARE_PENDING="$test_tmp/run/pending"
+export TEST_LOG="$test_tmp/calls" TEST_VERSION_FILE="$test_tmp/version"
 export TEST_PRODUCT_NAME="XPS 13 DX13260" TEST_INTEL_PTL=1
 install_call="pacman -S --noconfirm --needed omarchy/linux-firmware-cirrus"
+firmware_pending="$test_tmp/run/pending"
+
+# Redirect the fixed filesystem path in isolated copies, not through production environment overrides.
+export OMARCHY_PATH="$test_tmp/omarchy"
+mkdir -p "$OMARCHY_PATH/install/hardware" "$OMARCHY_PATH/migrations"
+sed "s|/run/omarchy/xps13-ptl-speaker-firmware|$firmware_pending|g" "$leaf" >"$OMARCHY_PATH/install/hardware/${leaf##*/}"
+sed "s|/run/omarchy/xps13-ptl-speaker-firmware|$firmware_pending|g" "$migration" >"$OMARCHY_PATH/migrations/${migration##*/}"
+leaf="$OMARCHY_PATH/install/hardware/${leaf##*/}"
+migration="$OMARCHY_PATH/migrations/${migration##*/}"
 
 reset_fixture() {
   : >"$TEST_LOG"
   printf '%s' "$1" >"$TEST_VERSION_FILE"
-  rm -f "$OMARCHY_XPS13_FIRMWARE_PENDING"
+  rm -f "$firmware_pending"
 }
 
 run_leaf() {
@@ -120,12 +128,12 @@ for model in "XPS 9350" "XPS 13 DX13261"; do
   reset_fixture "20260810-2"
   TEST_PRODUCT_NAME="$model" run_leaf
   TEST_PRODUCT_NAME="$model" run_migration
-  [[ ! -s $TEST_LOG && ! -e $OMARCHY_XPS13_FIRMWARE_PENDING ]] || fail "other models receive no firmware repair"
+  [[ ! -s $TEST_LOG && ! -e $firmware_pending ]] || fail "other models receive no firmware repair"
 done
 reset_fixture "20260810-2"
 TEST_INTEL_PTL=0 run_leaf
 TEST_INTEL_PTL=0 run_migration
-[[ ! -s $TEST_LOG && ! -e $OMARCHY_XPS13_FIRMWARE_PENDING ]] || fail "the Wildcat Lake variant receives no firmware repair"
+[[ ! -s $TEST_LOG && ! -e $firmware_pending ]] || fail "the Wildcat Lake variant receives no firmware repair"
 pass "other models and the Wildcat Lake variant receive no firmware repair"
 
 for version in "" "20260810-2"; do
@@ -133,7 +141,7 @@ for version in "" "20260810-2"; do
   run_leaf || fail "missing or old firmware is installed during hardware setup"
   [[ $(<"$TEST_LOG") == "$install_call" && $(<"$TEST_VERSION_FILE") == "20260810-3" ]] ||
     fail "hardware setup explicitly selects the Omarchy firmware"
-  [[ -e $OMARCHY_XPS13_FIRMWARE_PENDING ]] || fail "the firmware repair records its pending reboot"
+  [[ -e $firmware_pending ]] || fail "the firmware repair records its pending reboot"
 done
 pass "hardware setup explicitly installs the Omarchy firmware when missing or old"
 
@@ -141,7 +149,7 @@ for version in "20260810-3" "20260810-4" "20260910-2" "1:20260810-2"; do
   reset_fixture "$version"
   run_leaf
   run_migration
-  [[ ! -s $TEST_LOG && ! -e $OMARCHY_XPS13_FIRMWARE_PENDING && $(<"$TEST_VERSION_FILE") == "$version" ]] ||
+  [[ ! -s $TEST_LOG && ! -e $firmware_pending && $(<"$TEST_VERSION_FILE") == "$version" ]] ||
     fail "sufficient or newer firmware is preserved without a reboot request"
 done
 pass "sufficient or newer firmware is preserved without a reboot request"
@@ -167,15 +175,26 @@ run_migration
 pass "a second user before reboot is prompted without reinstalling"
 
 : >"$TEST_LOG"
-rm -f "$OMARCHY_XPS13_FIRMWARE_PENDING"
+rm -f "$firmware_pending"
 run_migration
 [[ ! -s $TEST_LOG ]] || fail "the migration is a no-op after reboot with repaired firmware"
 pass "the migration is a no-op after reboot with repaired firmware"
 
 reset_fixture "20260810-2"
-if OMARCHY_XPS13_FIRMWARE_PENDING="$TEST_VERSION_FILE/not-a-directory" run_migration 2>/dev/null; then
+rm -rf "$test_tmp/run"
+touch "$test_tmp/run"
+if run_migration 2>/dev/null; then
   fail "failure to record the pending reboot fails the migration"
 fi
 [[ ! -s $TEST_LOG && $(<"$TEST_VERSION_FILE") == "20260810-2" ]] ||
   fail "failure to record the reboot marker installs nothing"
 pass "failure to record the reboot marker installs nothing"
+
+rm -f "$test_tmp/run"
+reset_fixture "20260810-2"
+protected_file="$test_tmp/protected"
+printf 'preserve me\n' >"$protected_file"
+OMARCHY_XPS13_FIRMWARE_PENDING="$protected_file" run_migration
+[[ $(<"$protected_file") == "preserve me" && -e $firmware_pending && $(<"$TEST_LOG") == "$install_call"$'\nstate set reboot-required' ]] ||
+  fail "the invoking user's environment cannot redirect the privileged marker write"
+pass "the invoking user's environment cannot redirect the privileged marker write"

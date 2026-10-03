@@ -27,9 +27,9 @@ display_conf="$test_tmp/limine/dell-xps13-ptl-display.conf"
 rebuild_marker="$test_tmp/rebuilt"
 running_cmdline="$test_tmp/cmdline"
 redirect_path '"/etc/limine-entry-tool.d/dell-xps13-ptl-display.conf"' "$display_conf" <"$leaf" |
+  redirect_path '"/var/lib/omarchy/migrations/1790916392"' "$rebuild_marker" |
   redirect_path '/etc/limine-entry-tool.d$' "$test_tmp/limine" >"$OMARCHY_PATH/install/hardware/${leaf##*/}"
-redirect_path '"/var/lib/omarchy/migrations/1790916392"' "$rebuild_marker" <"$migration" |
-  redirect_path '/proc/cmdline' "$running_cmdline" >"$test_tmp/migration.sh"
+redirect_path '/proc/cmdline' "$running_cmdline" <"$migration" >"$test_tmp/migration.sh"
 
 cat >"$test_tmp/bin/omarchy-hw-match" <<'SH'
 #!/bin/bash
@@ -125,3 +125,18 @@ printf '%s\n' "$expected_cmdline" >"$running_cmdline"
 run_migration
 [[ ! -s $TEST_LOG ]] || fail "both booted parameters avoid an unnecessary reboot prompt"
 pass "the reboot prompt remains until both parameters are booted"
+
+rm "$display_conf"
+printf '%s\n' 'root=UUID=keep quiet' >"$TEST_IMAGE_CMDLINE"
+printf '%s\n' 'root=UUID=keep quiet' >"$running_cmdline"
+TEST_REBUILD_STATUS=1 run_migration && fail "a failed rebuild after restoring the drop-in leaves the migration pending"
+[[ -e $display_conf && ! -e $rebuild_marker ]] && ! grep -q '^state ' "$TEST_LOG" ||
+  fail "restoring the drop-in invalidates the old rebuild marker before a failed rebuild"
+pass "restoring the drop-in invalidates the old marker before a failed rebuild"
+
+run_migration
+[[ -e $rebuild_marker && $(<"$TEST_IMAGE_CMDLINE") == "$expected_cmdline" ]] &&
+  grep -q '^sudo limine-mkinitcpio$' "$TEST_LOG" &&
+  grep -q '^state set reboot-required$' "$TEST_LOG" ||
+  fail "restoring a lost drop-in rebuilds even after a previous successful migration"
+pass "restoring a lost drop-in rebuilds even after a previous successful migration"

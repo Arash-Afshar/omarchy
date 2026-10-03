@@ -3,8 +3,6 @@ echo "Apply the Dell XPS 13 Panther Lake display workaround"
 if omarchy-hw-dell-xps13-dx13260-ptl; then
   source "$OMARCHY_PATH/install/hardware/dell-xps13-ptl-display.sh"
 
-  display_rebuild_marker="/var/lib/omarchy/migrations/1790916392"
-
   # Record a successful machine-wide rebuild so other users do not repeat it.
   if [[ ! -e $display_rebuild_marker ]]; then
     if ! display_rebuild_output=$(sudo limine-mkinitcpio 2>&1); then

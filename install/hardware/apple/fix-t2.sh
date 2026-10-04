@@ -3,12 +3,6 @@
 if lspci -nn | grep "106b:180[12]" >/dev/null; then
   echo "Detected MacBook with T2 chip. Installing support items..."
 
-  # The fetcher replaced the packaged firmware upstream and declares
-  # Conflicts=apple-bcm-firmware, so a machine that already carries the old
-  # package (an earlier install) must drop it first or the noninteractive
-  # transaction fails. Fresh installs have nothing to drop, which is a no-op.
-  omarchy-pkg-drop apple-bcm-firmware
-
   # apple-bcm-firmware-fetcher reads its firmware off an on-disk macOS volume —
   # Wi-Fi firmware for T2 Macs is only legally obtainable from there. A
   # single-boot install that wiped macOS has no such volume, so the fetch comes

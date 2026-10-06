@@ -99,6 +99,9 @@ CONF
 }
 run_transaction() {
   local status=0
+  if [[ ${RETENTION_SIMULATE_SUCCESS:-0} != 1 && ${RETENTION_INSTALL_NO_CHANGE:-0} != 1 ]]; then
+    set -- --print "$@"
+  fi
   PATH="$test_tmp/bin:$PATH" "$ROOT/bin/omarchy-update-pacman" "$@" >"$test_tmp/result" 2>"$test_tmp/errors" || status=$?
   (( status == 0 )) || cat "$test_tmp/errors" >&2
   return "$status"
@@ -204,3 +207,19 @@ pass "a final --confirm keeps the interactive question policy"
 run_transaction -Su --confirm --noconfirm
 [[ $(sed -n '/^--ask$/{n;p;}' "$test_tmp/transaction-args") == 1 ]] || fail "a final --noconfirm keeps noninteractive exclusions"
 pass "a final --noconfirm keeps noninteractive exclusions"
+reset_fixture 20260810-2
+status=0
+RETENTION_INSTALL_NO_CHANGE=1 run_transaction -Su --noconfirm || status=$?
+[[ $status == 1 && ! -e $test_tmp/state && $(<"$test_tmp/errors") == *'Check package exclusions and retry'* ]] ||
+  fail "an excluded or declined installation cannot report a successful firmware repair"
+pass "an excluded or declined installation fails without bypassing exclusions or requesting reboot"
+for print_option in -Sup -Suw --print --downloadonly '--print-format=%n'; do
+  reset_fixture 20260810-2
+  if [[ $print_option == -S* ]]; then
+    RETENTION_INSTALL_NO_CHANGE=1 run_transaction "$print_option" --noconfirm
+  else
+    RETENTION_INSTALL_NO_CHANGE=1 run_transaction -Su --noconfirm "$print_option"
+  fi
+  [[ ! -e $test_tmp/state ]] || fail "non-install modes never request reboot"
+done
+pass "short, long and formatted print/download-only transactions remain successful without repair"

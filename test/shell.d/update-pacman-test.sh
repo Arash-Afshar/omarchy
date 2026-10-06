@@ -15,6 +15,8 @@ cat >"$stub_bin/sudo" <<'STUB'
 printf '%s\n' "$*" >"$SUDO_CALL_LOG"
 STUB
 chmod +x "$stub_bin/sudo"
+printf '#!/bin/bash\nexit 1\n' >"$stub_bin/omarchy-hw-dell-xps13-dx13260-ptl"
+chmod +x "$stub_bin/omarchy-hw-dell-xps13-dx13260-ptl"
 
 run_helper() {
   PATH="$stub_bin:$PATH" SUDO_CALL_LOG="$test_tmp/call" "$ROOT/bin/omarchy-update-pacman" "$@"

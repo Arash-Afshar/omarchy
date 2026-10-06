@@ -31,6 +31,12 @@ STUB
 # for a person has to keep that stream.
 cat >"$stub_bin/pacman" <<'STUB'
 #!/bin/bash
+if [[ $1 == "-Q" ]]; then
+  version=20260810-2
+  (( $(cat "$PACMAN_ATTEMPTS") < 2 )) || version=20260810-3
+  printf 'linux-firmware-cirrus %s\n' "$version"
+  exit 0
+fi
 attempt=$(($(cat "$PACMAN_ATTEMPTS") + 1))
 echo "$attempt" >"$PACMAN_ATTEMPTS"
 {
@@ -47,7 +53,16 @@ fi
 echo "upgrade complete"
 STUB
 
+cat >"$stub_bin/omarchy-hw-dell-xps13-dx13260-ptl" <<'STUB'
+#!/bin/bash
+[[ ${TEST_PTL_MATCH:-0} == 1 ]]
+STUB
+cat >"$stub_bin/omarchy-state" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
 chmod +x "$stub_bin/sudo" "$stub_bin/systemd-run" "$stub_bin/pacman"
+chmod +x "$stub_bin/omarchy-hw-dell-xps13-dx13260-ptl" "$stub_bin/omarchy-state"
 
 # Everything a blocked qemu-common upgrade leaves on stderr, and no more. The
 # ":: ... Remove qemu-block-gluster? [y/N]" pacman asked is deliberately absent:
@@ -161,3 +176,11 @@ fi
 [[ $(call_line 1 args) == *"--noconfirm"* ]] ||
   fail "a caller can ask for an interactive upgrade directly"
 pass "only the conflict handler can hand the upgrade to a person"
+
+write_conflict_report
+TEST_PTL_MATCH=1 run_on_terminal || fail "the firmware minimum blocks interactive conflict recovery"
+[[ $(call_line 1 args) == *'linux-firmware-cirrus>=20260810-3'* && $(call_line 1 args) == *'--ask 1'* ]] ||
+  fail "the first matching-hardware transaction retains its firmware and exclusion policy"
+[[ $(call_line 2 args) == *'linux-firmware-cirrus>=20260810-3'* && $(call_line 2 args) != *'--ask'* && $(call_line 2 args) != *'--noconfirm'* ]] ||
+  fail "the matching-hardware conflict retry must let the person answer"
+pass "Panther Lake firmware repair preserves interactive package conflict recovery"

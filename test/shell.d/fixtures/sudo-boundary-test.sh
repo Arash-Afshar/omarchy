@@ -32,8 +32,6 @@ PY
 copy_boundary_file bin/omarchy-security-functions
 copy_boundary_file bin/omarchy-update-pacman
 copy_boundary_file default/omarchy/sudo-no-update/sudo
-printf '#!/bin/bash\nexit 1\n' >"$SUDO_TEST_ROOT/bin/omarchy-hw-dell-xps13-dx13260-ptl"
-chmod +x "$SUDO_TEST_ROOT/bin/omarchy-hw-dell-xps13-dx13260-ptl"
 
 cat >"$SUDO_TEST_ROOT/mock/sudo" <<'STUB'
 #!/bin/bash

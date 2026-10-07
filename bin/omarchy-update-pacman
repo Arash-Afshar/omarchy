@@ -5,98 +5,6 @@
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
-pacman_args=("$@")
-query_args=()
-declare -A firmware_targets needed_options
-sync=0 upgrades=0 ask_bits=0 repair_reboot=0
-noninteractive=0
-install_operation=1
-operand="" option=""
-end_options=0
-separator_index=""
-for index in "${!pacman_args[@]}"; do
-  arg=${pacman_args[index]}
-  if [[ -n $operand ]]; then
-    if [[ $operand == "query" ]]; then
-      query_args+=("$option" "$arg")
-    elif [[ $operand == "ask" ]]; then
-      [[ $arg =~ ^[0-9]{1,10}$ ]] || { echo "Invalid pacman question mask: $arg" >&2; exit 2; }
-      ask_bits=$((10#$arg))
-      noninteractive=1
-    fi
-    operand=""
-    continue
-  fi
-  if [[ $arg == "--" ]]; then
-    end_options=1
-    separator_index=$index
-    continue
-  fi
-  if (( end_options )); then
-    [[ $arg != "linux-firmware-cirrus" && $arg != */linux-firmware-cirrus ]] || firmware_targets[$index]=1
-    continue
-  fi
-  case "$arg" in
-    --sync) sync=1 ;;
-    --sysupgrade) ((upgrades += 1)) ;;
-    --noconfirm) noninteractive=1 ;;
-    --confirm) noninteractive=0 ;;
-    --print|--downloadonly) install_operation=0 ;;
-    --print-format) install_operation=0; operand=skip ;;
-    --print-format=*) install_operation=0 ;;
-    --ask) operand=ask ;;
-    --ask=*)
-      mask=${arg#*=}
-      [[ $mask =~ ^[0-9]{1,10}$ ]] || { echo "Invalid pacman question mask: $mask" >&2; exit 2; }
-      ask_bits=$((10#$mask))
-      noninteractive=1
-      ;;
-    --config|--dbpath|--root|--sysroot|-b|-r) operand=query; option=$arg ;;
-    --config=*|--dbpath=*|--root=*|--sysroot=*) query_args+=("$arg") ;;
-    --ignore|--ignoregroup|--cachedir|--hookdir|--gpgdir|--logfile|--overwrite) operand=skip ;;
-    -b?*|-r?*) query_args+=("$arg") ;;
-    --needed) needed_options[$index]=1 ;;
-    --*) ;;
-    -*)
-      [[ $arg != *S* ]] || sync=1
-      [[ $arg != *p* && $arg != *w* ]] || install_operation=0
-      upgrade_flags=${arg//[^u]/}
-      ((upgrades += ${#upgrade_flags}))
-      ;;
-    linux-firmware-cirrus|*/linux-firmware-cirrus) firmware_targets[$index]=1 ;;
-  esac
-done
-
-if (( sync && upgrades )) && omarchy-hw-dell-xps13-dx13260-ptl; then
-  cirrus_package=$(pacman "${query_args[@]}" -Q linux-firmware-cirrus 2>/dev/null || true)
-  old_firmware=0
-  if [[ -z $cirrus_package ]] || (( $(vercmp "${cirrus_package#* }" "20260810-3") < 0 )); then
-    old_firmware=1
-  fi
-  if (( upgrades > 1 || old_firmware || ${#firmware_targets[@]} )); then
-    pacman_args=()
-    original_args=("$@")
-    policy_inserted=0
-    for index in "${!original_args[@]}"; do
-      arg=${original_args[index]}
-      if (( noninteractive )) && [[ $index == "$separator_index" ]]; then
-        pacman_args+=(--ask "$((ask_bits | 1))")
-        policy_inserted=1
-      fi
-      [[ ! -v firmware_targets[$index] ]] || continue
-      # --needed skips an installed shim before -Suu selects the older core copy.
-      (( upgrades < 2 )) || [[ ! -v needed_options[$index] ]] || continue
-      pacman_args+=("$arg")
-    done
-    # Keep exclusions through pacman's own IgnorePkg/IgnoreGroup question handling.
-    if (( noninteractive && ! policy_inserted )); then
-      pacman_args+=(--ask "$((ask_bits | 1))")
-    fi
-    pacman_args+=('linux-firmware-cirrus>=20260810-3')
-    repair_reboot=$old_firmware
-  fi
-fi
-
 # Upgrading systemd runs its post_upgrade scriptlet mid-transaction, which
 # reexecs both the system manager and every user manager. A pacman running
 # inside a user-session scope can be SIGKILLed by that reexec, abandoning the
@@ -114,16 +22,4 @@ if [[ -n ${LC_ALL:-} ]]; then
   env_args+=(LC_ALL="$LC_ALL")
 fi
 
-if (( repair_reboot )); then
-  sudo env "${env_args[@]}" "${scope[@]}" pacman "${pacman_args[@]}" || exit $?
-  (( install_operation )) || exit 0
-  cirrus_package=$(pacman "${query_args[@]}" -Q linux-firmware-cirrus 2>/dev/null || true)
-  if [[ -n $cirrus_package ]] && (( $(vercmp "${cirrus_package#* }" "20260810-3") >= 0 )); then
-    omarchy-state set reboot-required
-  else
-    echo "Speaker firmware requires linux-firmware-cirrus>=20260810-3. Check package exclusions and retry the update." >&2
-    exit 1
-  fi
-else
-  exec sudo env "${env_args[@]}" "${scope[@]}" pacman "${pacman_args[@]}"
-fi
+exec sudo env "${env_args[@]}" "${scope[@]}" pacman "$@"

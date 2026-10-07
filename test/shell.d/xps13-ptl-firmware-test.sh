@@ -98,9 +98,10 @@ for version in "" "20260810-2" "20260810-3" "20260810-4" "20260910-2" "20260916-
   run_leaf || fail "the alias package is installed during hardware setup"
   [[ $(<"$TEST_LOG") == "$install_call" && $(<"$TEST_VERSION_FILE") == "$version" && -e $TEST_ALIAS_FILE ]] ||
     fail "hardware setup installs the separate aliases without replacing stock firmware"
-  [[ -e $firmware_pending ]] || fail "the firmware repair records its pending reboot"
+  [[ ! -e $firmware_pending ]] || fail "hardware setup leaves reboot bookkeeping to the migration"
 done
 pass "hardware setup installs the package identity without replacing any stock firmware"
+pass "hardware setup leaves reboot bookkeeping to the migration"
 
 reset_fixture "20260810-2"
 touch "$TEST_ALIAS_FILE"

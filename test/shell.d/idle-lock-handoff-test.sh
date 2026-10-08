@@ -23,8 +23,8 @@ assert(
   'failed lock handoff keeps screensaver tracking and restores dismissal'
 )
 assert(
-  /function cancelIdleCycle[\s\S]*screensaverWindowCount === 0[\s\S]*resetScreensaverWindows\(\)[\s\S]*else \{[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
-  'Stay Awake cancels idle deadlines without clearing visible screensaver tracking'
+  /function cancelIdleCycle[\s\S]*!lockProcess\.running[\s\S]*lockHandoff = false[\s\S]*if \(root\.lockHandoff\)[\s\S]*screensaverWindowCount === 0[\s\S]*resetScreensaverWindows\(\)[\s\S]*else \{[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
+  'Stay Awake cancels idle deadlines without clearing handoff or visible screensaver tracking'
 )
 assert(
   /function lockFromIdle\(\): string \{[\s\S]*root\.beginIdleLock\(\)/.test(lockQml),

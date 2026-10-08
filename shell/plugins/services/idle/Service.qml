@@ -192,7 +192,15 @@ Item {
 
     root.idledThisCycle = false
     root.screensaverStartedThisCycle = false
-    root.lockHandoff = false
+
+    // Stay Awake during an in-flight lock must not clear the handoff guard:
+    // lockProcess is still racing to secure, and enabling dismissal would let
+    // pointer activity remove the screensaver and flash the desktop.
+    if (!lockProcess.running) root.lockHandoff = false
+    if (root.lockHandoff) {
+      dismissArmTimer.stop()
+      return
+    }
 
     // Stay Awake (and similar) cancel idle deadlines while a force-launched
     // screensaver may still be mapped. Keep window tracking so seat dismissal

@@ -10,12 +10,24 @@ source "$(dirname "$0")/base-test.sh"
 
 script="$ROOT/bin/omarchy-sudo-keepalive"
 test_tmp=$(mktemp -d)
-trap 'rm -rf "$test_tmp"' EXIT
-
 mock_bin="$test_tmp/bin"
 calls="$test_tmp/calls"
 exit_now="$test_tmp/exit_now"
 release="$test_tmp/release"
+caller_pid=""
+
+# Release both waits and reap children before deleting the temp dir, so a
+# failed assertion cannot leave the background caller holding the suite pipe.
+cleanup() {
+  touch "$exit_now" "$release" 2>/dev/null || true
+  if [[ -n $caller_pid ]]; then
+    kill "$caller_pid" 2>/dev/null || true
+    wait "$caller_pid" 2>/dev/null || true
+  fi
+  rm -rf "$test_tmp"
+}
+trap cleanup EXIT
+
 mkdir -p "$mock_bin"
 
 # The refresh blocks until the harness releases it, so cleanup can begin while
@@ -73,6 +85,7 @@ kill -0 "$caller_pid" 2>/dev/null ||
 
 touch "$release"
 wait "$caller_pid"
+caller_pid=""
 
 grep -qx refresh-done "$calls" ||
   fail "in-flight refresh completes before revoke" "$(cat "$calls")"

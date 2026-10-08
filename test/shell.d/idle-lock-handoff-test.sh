@@ -25,7 +25,7 @@ assert(
 assert(
   /concealAuthentication: root\.idleTransitionConcealed/.test(lockQml)
     && /property bool concealAuthentication: false/.test(viewQml)
-    && /color: root\.concealAuthentication \? "black" : Color\.background/.test(viewQml)
+    && /color: root\.concealAuthentication \? "black" : Commons\.Color\.background/.test(viewQml)
     && /opacity: root\.concealAuthentication \? 0 : 1/.test(viewQml),
   'the lock surface conceals the wallpaper and password view during handoff'
 )

@@ -14,9 +14,12 @@ trap 'rm -rf "$test_tmp"' EXIT
 
 mock_bin="$test_tmp/bin"
 calls="$test_tmp/calls"
+exit_now="$test_tmp/exit_now"
+release="$test_tmp/release"
 mkdir -p "$mock_bin"
 
-# The refresh takes 0.3 s, like a slow sudo -n true.
+# The refresh blocks until the harness releases it, so cleanup can begin while
+# it is still in flight instead of racing a fixed sleep.
 cat >"$mock_bin/sudo" <<'SH'
 #!/bin/bash
 
@@ -26,7 +29,9 @@ case ${1:-} in
   ;;
 -n)
   printf 'refresh-start\n' >>"$TEST_CALLS"
-  /bin/sleep 0.3
+  while [[ ! -f $TEST_RELEASE ]]; do
+    /bin/sleep 0.01
+  done
   printf 'refresh-done\n' >>"$TEST_CALLS"
   ;;
 *)
@@ -37,20 +42,43 @@ esac
 SH
 chmod +x "$mock_bin/sudo"
 
-# The first refresh starts after one 0.1 s interval; the caller exits at 0.2 s,
-# while that refresh is still running.
 PATH="$mock_bin:$PATH" \
   TEST_CALLS="$calls" \
-  OMARCHY_SUDO_KEEPALIVE_INTERVAL=0.1 \
+  TEST_RELEASE="$release" \
+  OMARCHY_SUDO_KEEPALIVE_INTERVAL=0.05 \
   OMARCHY_SUDO_KEEPALIVE_MAX_REFRESHES=5 \
   bash -c '
     source "$1"
-    /bin/sleep 0.2
-  ' bash "$script"
+    while [[ ! -f $2 ]]; do
+      /bin/sleep 0.01
+    done
+  ' bash "$script" "$exit_now" &
+caller_pid=$!
 
-# Let an orphaned refresh finish before reading the log.
-/bin/sleep 0.5
+for _ in $(seq 200); do
+  grep -qx refresh-start "$calls" 2>/dev/null && break
+  /bin/sleep 0.01
+done
+grep -qx refresh-start "$calls" ||
+  fail "refresh starts before the caller exits" "$(cat "$calls" 2>/dev/null || true)"
 
-[[ $(tail -n 1 "$calls") == "-k" ]] ||
-  fail "sudo -k runs after any in-flight refresh" "$(cat "$calls")"
+# Caller exits into the EXIT trap while the refresh is still blocked.
+touch "$exit_now"
+
+# Let kill be delivered and wait begin on the in-flight refresh. The caller
+# must still be alive here: it is blocked in wait until we release the mock.
+/bin/sleep 0.05
+kill -0 "$caller_pid" 2>/dev/null ||
+  fail "caller exited before the refresh was released" "$(cat "$calls")"
+
+touch "$release"
+wait "$caller_pid"
+
+grep -qx refresh-done "$calls" ||
+  fail "in-flight refresh completes before revoke" "$(cat "$calls")"
+
+done_line=$(grep -nx 'refresh-done' "$calls" | head -n 1 | cut -d: -f1)
+revoke_line=$(grep -nx -- '-k' "$calls" | head -n 1 | cut -d: -f1)
+[[ -n $done_line && -n $revoke_line ]] && (( done_line < revoke_line )) ||
+  fail "refresh-done precedes sudo -k" "$(cat "$calls")"
 pass "sudo -k runs after any in-flight refresh"

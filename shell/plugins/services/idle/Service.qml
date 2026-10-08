@@ -126,13 +126,14 @@ Item {
     root.screensaverStartedThisCycle = false
 
     // Keep the fullscreen screensaver over the desktop until the concealed
-    // lock surface is secure on every output. Then run the normal lock cleanup
-    // (which removes the screensaver). If the lock request disappears, leave
-    // the screensaver mapped instead of exposing the session.
+    // lock surface is secure on every output. Then run lock cleanup without
+    // requesting another lock (which would race fingerprint unlock). If the
+    // lock request disappears, leave the screensaver mapped instead of
+    // exposing the session.
     runProcess(
       lockProcess,
       "lock",
-      "omarchy-shell lock lockFromIdle >/dev/null 2>&1 || exit 1; while [[ $(omarchy-shell lock isLocked 2>/dev/null) == true ]]; do [[ $(omarchy-shell lock status 2>/dev/null | jq -r '.secure // false') == true ]] && exec omarchy-system-lock; sleep 0.05; done; exit 1"
+      "omarchy-shell lock lockFromIdle >/dev/null 2>&1 || exit 1; while [[ $(omarchy-shell lock isLocked 2>/dev/null) == true ]]; do [[ $(omarchy-shell lock status 2>/dev/null | jq -r '.secure // false') == true ]] && exec omarchy-system-lock cleanup; sleep 0.05; done; exit 1"
     )
   }
 
@@ -186,13 +187,24 @@ Item {
     screensaverTimer.stop()
     lockTimer.stop()
     screensaverLaunchGraceTimer.stop()
-    dismissArmTimer.stop()
 
     if (root.idledThisCycle) runProcess(wakeProcess, "wake", "omarchy-system-wake")
 
     root.idledThisCycle = false
     root.screensaverStartedThisCycle = false
-    resetScreensaverWindows()
+    root.lockHandoff = false
+
+    // Stay Awake (and similar) cancel idle deadlines while a force-launched
+    // screensaver may still be mapped. Keep window tracking so seat dismissal
+    // remains armed; only clear tracking when nothing is visible.
+    if (root.screensaverWindowCount === 0) {
+      resetScreensaverWindows()
+    } else {
+      root.dismissInFlight = false
+      root.dismissSettled = false
+      if (root.screensaverLaunchComplete) dismissArmTimer.restart()
+      else dismissArmTimer.stop()
+    }
   }
 
   function resetScreensaverWindows() {
@@ -264,6 +276,11 @@ Item {
 
     if (IdleModel.screensaverLaunchCompleteAfter(root.screensaverWindowCount, root.expectedScreensaverWindows, false)) {
       markScreensaverLaunchComplete("windows=" + root.screensaverWindowCount + "/" + root.expectedScreensaverWindows)
+    } else if (root.screensaverLaunchComplete) {
+      // A slow output can map after grace already marked launch complete.
+      // Restart the arm timer so its focus activity cannot false-dismiss,
+      // and so a jittery pointer is not left unarmed after the old timer.
+      dismissArmTimer.restart()
     }
   }
 
@@ -476,7 +493,20 @@ Item {
     id: lockProcess
     onExited: function(exitCode, exitStatus) {
       root.lockHandoff = false
-      root.resetScreensaverWindows()
+      if (exitCode === 0) {
+        // Successful cleanup should have removed the screensaver; clear any
+        // stale tracking if closewindow raced ahead of this exit.
+        root.resetScreensaverWindows()
+      } else if (root.screensaverWindowCount > 0) {
+        // Failed / abandoned handoff leaves windows mapped. Keep tracking and
+        // restore seat dismissal (missing-pam, IPC failure, unlock mid-poll).
+        root.dismissInFlight = false
+        root.screensaverLaunchComplete = true
+        root.dismissSettled = false
+        dismissArmTimer.restart()
+      } else {
+        root.resetScreensaverWindows()
+      }
       root.logEvent("process-exit", "lock exitCode=" + exitCode + " status=" + exitStatus)
     }
   }

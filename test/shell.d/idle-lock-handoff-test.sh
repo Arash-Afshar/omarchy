@@ -11,8 +11,20 @@ const lockQml = fs.readFileSync(`${root}/shell/plugins/lock/Service.qml`, 'utf8'
 const viewQml = fs.readFileSync(`${root}/shell/plugins/lock/LockView.qml`, 'utf8')
 
 assert(
-  /lockFromIdle[\s\S]*while \[\[ \$\(omarchy-shell lock isLocked[\s\S]*\.secure \/\/ false[\s\S]*exec omarchy-system-lock/.test(idleQml),
-  'idle keeps the screensaver mapped until the concealed lock reports secure'
+  /lockFromIdle[\s\S]*while \[\[ \$\(omarchy-shell lock isLocked[\s\S]*\.secure \/\/ false[\s\S]*exec omarchy-system-lock cleanup/.test(idleQml),
+  'idle keeps the screensaver mapped until secure, then cleans up without re-locking'
+)
+assert(
+  /else if \(root\.screensaverLaunchComplete\)[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
+  'late screensaver windows restart the dismiss arm timer'
+)
+assert(
+  /id: lockProcess[\s\S]*exitCode === 0[\s\S]*resetScreensaverWindows\(\)[\s\S]*screensaverWindowCount > 0[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
+  'failed lock handoff keeps screensaver tracking and restores dismissal'
+)
+assert(
+  /function cancelIdleCycle[\s\S]*screensaverWindowCount === 0[\s\S]*resetScreensaverWindows\(\)[\s\S]*else \{[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
+  'Stay Awake cancels idle deadlines without clearing visible screensaver tracking'
 )
 assert(
   /function lockFromIdle\(\): string \{[\s\S]*root\.beginIdleLock\(\)/.test(lockQml),
@@ -26,8 +38,9 @@ assert(
   /concealAuthentication: root\.idleTransitionConcealed/.test(lockQml)
     && /property bool concealAuthentication: false/.test(viewQml)
     && /color: root\.concealAuthentication \? "black" : Commons\.Color\.background/.test(viewQml)
-    && /opacity: root\.concealAuthentication \? 0 : 1/.test(viewQml),
-  'the lock surface conceals the wallpaper and password view during handoff'
+    && /opacity: root\.concealAuthentication \? 0 : 1/.test(viewQml)
+    && /fingerprintUnavailableNotice[\s\S]*visible: root\.fingerprintConfigured && root\.fingerprintUnavailable && !root\.concealAuthentication/.test(viewQml),
+  'the lock surface conceals the wallpaper, password view, and fingerprint notice during handoff'
 )
 assert(
   /feedActive: root\.video && root\.loadBackground && !root\.concealAuthentication/.test(viewQml)

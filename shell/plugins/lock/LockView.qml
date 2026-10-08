@@ -272,7 +272,7 @@ Item {
       anchors.top: inputField.bottom
       anchors.topMargin: 18
       anchors.horizontalCenter: inputField.horizontalCenter
-      visible: root.fingerprintConfigured && root.fingerprintUnavailable
+      visible: root.fingerprintConfigured && root.fingerprintUnavailable && !root.concealAuthentication
       text: "Fingerprint reader unavailable"
       color: Commons.Color.lock.textError
       font.family: Style.font.family

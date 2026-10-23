@@ -5,81 +5,173 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 run_node_test <<'JS'
-const fs = require('fs')
-const idleQml = fs.readFileSync(`${root}/shell/plugins/services/idle/Service.qml`, 'utf8')
-const lockQml = fs.readFileSync(`${root}/shell/plugins/lock/Service.qml`, 'utf8')
-const viewQml = fs.readFileSync(`${root}/shell/plugins/lock/LockView.qml`, 'utf8')
+const idle = requireFromRoot('shell/plugins/services/idle/IdleModel.js')
+const handoff = requireFromRoot('shell/plugins/lock/Handoff.js')
 
-assert(
-  /lockFromIdle[\s\S]*deadline=\$\(\(SECONDS \+ 10\)\)[\s\S]*while \[\[ \$\(omarchy-shell lock isLocked[\s\S]*\.secure \/\/ false[\s\S]*exec omarchy-system-lock cleanup[\s\S]*SECONDS >= deadline[\s\S]*exit 1/.test(idleQml),
-  'idle keeps the screensaver mapped until secure, then cleans up without re-locking, and stops waiting after 10s'
+assertDeepEqual(
+  idle.dismissStart({ lockHandoff: false, dismissInFlight: false, windowCount: 2 }),
+  { start: true, stopScreensaverTimer: true, stopLockTimer: true },
+  'seat dismissal stops the screensaver and lock deadlines before the windows close'
 )
-assert(
-  /function dismissScreensaver[\s\S]*dismissInFlight = true[\s\S]*screensaverTimer\.stop\(\)[\s\S]*lockTimer\.stop\(\)[\s\S]*pkill -f/.test(idleQml),
-  'seat dismissal stops the lock deadline before the screensaver windows close'
+assertDeepEqual(
+  idle.dismissStart({ lockHandoff: true, dismissInFlight: false, windowCount: 2 }),
+  { start: false },
+  'seat dismissal does not start during lock handoff'
 )
-assert(
-  /function lockSystem[\s\S]*if \(root\.dismissInFlight\) return[\s\S]*lockHandoff = true/.test(idleQml),
+assertDeepEqual(
+  idle.dismissStart({ lockHandoff: false, dismissInFlight: true, windowCount: 2 }),
+  { start: false },
+  'seat dismissal does not start a second time while one is in flight'
+)
+assertDeepEqual(
+  idle.dismissStart({ lockHandoff: false, dismissInFlight: false, windowCount: 0 }),
+  { start: false },
+  'seat dismissal does nothing when no screensaver is mapped'
+)
+
+assertDeepEqual(
+  idle.lockHandoffStart({ dismissInFlight: true }),
+  { start: false },
   'a lock deadline that fires during dismissal does not start a handoff'
 )
-assert(
-  /else if \(root\.screensaverLaunchComplete\)[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
-  'late screensaver windows restart the dismiss arm timer'
+assertDeepEqual(
+  idle.lockHandoffStart({ dismissInFlight: false }),
+  { start: true },
+  'a lock deadline starts a handoff when dismissal is not underway'
 )
-assert(
-  /id: lockProcess[\s\S]*exitCode === 0[\s\S]*resetScreensaverWindows\(\)[\s\S]*screensaverWindowCount > 0[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
-  'failed lock handoff keeps screensaver tracking and restores dismissal'
+
+assertDeepEqual(
+  idle.cancelIdleCyclePlan({ lockProcessRunning: true, lockHandoff: true, windowCount: 2, launchComplete: true }),
+  { lockHandoff: true, holdHandoff: true, resetWindows: false, rearmDismiss: false },
+  'Stay Awake during an in-flight lock keeps the handoff guard'
 )
-assert(
-  /function cancelIdleCycle[\s\S]*!lockProcess\.running[\s\S]*lockHandoff = false[\s\S]*if \(root\.lockHandoff\)[\s\S]*screensaverWindowCount === 0[\s\S]*resetScreensaverWindows\(\)[\s\S]*else \{[\s\S]*dismissArmTimer\.restart\(\)/.test(idleQml),
-  'Stay Awake cancels idle deadlines without clearing handoff or visible screensaver tracking'
+assertDeepEqual(
+  idle.cancelIdleCyclePlan({ lockProcessRunning: false, lockHandoff: false, windowCount: 2, launchComplete: true }),
+  { lockHandoff: false, holdHandoff: false, resetWindows: false, rearmDismiss: true },
+  'Stay Awake keeps a visible screensaver dismissable'
 )
-assert(
-  /function lockFromIdle\(\): string \{[\s\S]*root\.beginIdleLock\(\)/.test(lockQml),
-  'the idle service has a dedicated lock entry point'
+assertDeepEqual(
+  idle.cancelIdleCyclePlan({ lockProcessRunning: false, lockHandoff: false, windowCount: 0, launchComplete: false }),
+  { lockHandoff: false, holdHandoff: false, resetWindows: true, rearmDismiss: false },
+  'cancelling idle with no screensaver clears its tracking'
 )
-assert(
-  /function beginIdleLock\(\)[\s\S]*idleTransitionConcealed = true[\s\S]*beginLock\(\)/.test(lockQml),
-  'idle concealment is enabled before ext-session-lock begins'
+
+assertDeepEqual(
+  idle.lockExitPlan({ exitCode: 0, windowCount: 2 }),
+  { lockHandoff: false, resetWindows: true, rearmDismiss: false },
+  'a finished handoff clears screensaver tracking'
 )
-assert(
-  /concealAuthentication: root\.idleTransitionConcealed/.test(lockQml)
-    && /property bool concealAuthentication: false/.test(viewQml)
-    && /color: root\.concealAuthentication \? "black" : Commons\.Color\.background/.test(viewQml)
-    && /opacity: root\.concealAuthentication \? 0 : 1/.test(viewQml)
-    && /fingerprintUnavailableNotice[\s\S]*visible: root\.fingerprintConfigured && root\.fingerprintUnavailable && !root\.concealAuthentication/.test(viewQml),
-  'the lock surface conceals the wallpaper, password view, and fingerprint notice during handoff'
+assertDeepEqual(
+  idle.lockExitPlan({ exitCode: 1, windowCount: 2 }),
+  { lockHandoff: false, resetWindows: false, rearmDismiss: true },
+  'a failed handoff keeps the screensaver and restores dismissal'
 )
-assert(
-  /feedActive: root\.video && root\.loadBackground && !root\.concealAuthentication/.test(viewQml)
-    && /path: root\.loadBackground && !root\.concealAuthentication \? \(root\.video \? root\.videoPosterPath : root\.backgroundPath\) : ""/.test(viewQml)
-    && /visible: !root\.concealAuthentication && root\.video/.test(viewQml),
-  'concealment also suppresses the OWE poster and lock feed'
+assertDeepEqual(
+  idle.lockExitPlan({ exitCode: 1, windowCount: 0 }),
+  { lockHandoff: false, resetWindows: true, rearmDismiss: false },
+  'a failed handoff with no screensaver clears stale tracking'
 )
-assert(
-  /cursorShape: root\.concealAuthentication \? Qt\.BlankCursor : Qt\.ArrowCursor/.test(viewQml),
-  'the concealed handoff hides the pointer'
+
+assertDeepEqual(
+  idle.lateScreensaverWindowPlan({ alreadyLaunchComplete: true, completesNow: false }),
+  { clearSettled: true, restartArmTimer: true },
+  'a screensaver window that maps after launch complete restarts the arm timer'
 )
-assert(
-  /function handlePointerWake\(\)[\s\S]*idleTransitionConcealed && !root\.idleTransitionPointerArmed[\s\S]*runWake\(\)/.test(lockQml),
-  'surface initialization cannot reveal a newly mapped concealed lock'
+assertDeepEqual(
+  idle.lateScreensaverWindowPlan({ alreadyLaunchComplete: false, completesNow: false }),
+  { clearSettled: true, restartArmTimer: false },
+  'a screensaver window before launch complete does not arm dismissal early'
 )
-assert(
-  /id: idleTransitionPointerTimer[\s\S]*sessionLock\.secure[\s\S]*idleTransitionPointerArmed = true/.test(lockQml),
-  'real pointer wake is armed only after the secure lock settles'
+assertDeepEqual(
+  idle.lateScreensaverWindowPlan({ alreadyLaunchComplete: true, completesNow: true }),
+  { clearSettled: true, restartArmTimer: false },
+  'the window that completes launch does not also take the late-window path'
 )
-assert(
-  /signal pointerWakeRequested\(\)[\s\S]*onClicked: \{ root\.pointerWakeRequested\(\); root\.forcePasswordFocus\(\) \}[\s\S]*onPositionChanged: root\.pointerWakeRequested\(\)/.test(viewQml),
-  'pointer activity uses the guarded wake path'
-)
-assert(
-  /screensaverDismissEnabled[\s\S]*IdleMonitor[\s\S]*id: screensaverDismissMonitor/.test(idleQml),
-  'idle arms a dedicated dismiss IdleMonitor while the screensaver is visible'
-)
-assert(
-  /id: dismissArmTimer[\s\S]*armDismissAfterLaunch/.test(idleQml),
-  'idle force-arms dismiss after launch so jittery pointers still dismiss'
-)
+
+assertEqual(handoff.ignoresPointerWake(true, false), true, 'mapping the concealed lock ignores the pointer already sitting there')
+assertEqual(handoff.ignoresPointerWake(true, true), false, 'pointer movement after the concealed lock settles can reveal authentication')
+assertEqual(handoff.ignoresPointerWake(false, false), false, 'pointer movement on a revealed lock is a real wake')
 JS
 
-pass "Idle lock handoff and screensaver dismiss stay wired together"
+require_command jq
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+mock_bin="$tmpdir/bin"
+call_log="$tmpdir/calls"
+poll_count="$tmpdir/polls"
+mkdir -p "$mock_bin"
+
+cat >"$mock_bin/omarchy-shell" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$CALL_LOG"
+case "$*" in
+  "lock lockFromIdle")
+    exit "${LOCK_FROM_IDLE_RC:-0}"
+    ;;
+  "lock isLocked")
+    printf '%s\n' "${LOCK_IS_LOCKED:-true}"
+    ;;
+  "lock status")
+    count=0
+    [[ -f $POLL_COUNT ]] && count=$(<"$POLL_COUNT")
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$POLL_COUNT"
+    if (( count >= ${SECURE_ON_POLL:-1} )); then
+      printf '%s\n' '{"secure":true}'
+    else
+      printf '%s\n' '{"secure":false}'
+    fi
+    ;;
+esac
+SH
+
+cat >"$mock_bin/omarchy-system-lock" <<'SH'
+#!/bin/bash
+printf 'system-lock %s\n' "$*" >>"$CALL_LOG"
+exit 0
+SH
+chmod +x "$mock_bin"/*
+
+handoff="$ROOT/shell/plugins/services/idle/lock-handoff.sh"
+
+run_handoff() {
+  PATH="$mock_bin:$PATH" \
+    CALL_LOG="$call_log" \
+    POLL_COUNT="$poll_count" \
+    LOCK_FROM_IDLE_RC="${LOCK_FROM_IDLE_RC:-0}" \
+    LOCK_IS_LOCKED="${LOCK_IS_LOCKED:-true}" \
+    SECURE_ON_POLL="${SECURE_ON_POLL:-1}" \
+    OMARCHY_IDLE_LOCK_WAIT_SECONDS="${OMARCHY_IDLE_LOCK_WAIT_SECONDS:-10}" \
+    bash "$handoff"
+}
+
+: >"$call_log"
+rm -f "$poll_count"
+run_handoff
+grep -qx 'lock lockFromIdle' "$call_log" || fail "idle handoff asks for the concealed lock"
+grep -qx 'system-lock cleanup' "$call_log" || fail "a secure idle lock removes the screensaver without requesting another lock"
+grep -q 'lock lock$' "$call_log" && fail "idle handoff cleanup must not request a second lock"
+
+: >"$call_log"
+rm -f "$poll_count"
+SECURE_ON_POLL=99 OMARCHY_IDLE_LOCK_WAIT_SECONDS=0 run_handoff && fail "an idle lock that never becomes secure must stop waiting"
+grep -q '^system-lock ' "$call_log" && fail "giving up on a secure lock must leave the screensaver mapped"
+
+: >"$call_log"
+rm -f "$poll_count"
+LOCK_IS_LOCKED=false run_handoff && fail "an idle lock that disappears must not report success"
+grep -q '^system-lock ' "$call_log" && fail "a disappeared idle lock must leave the screensaver mapped"
+
+: >"$call_log"
+rm -f "$poll_count"
+LOCK_FROM_IDLE_RC=1 run_handoff && fail "a refused idle lock must not wait"
+grep -q 'lock isLocked' "$call_log" && fail "a refused idle lock must not poll"
+
+: >"$call_log"
+rm -f "$poll_count"
+SECURE_ON_POLL=2 OMARCHY_IDLE_LOCK_WAIT_SECONDS=5 run_handoff
+[[ $(<"$poll_count") == 2 ]] || fail "idle handoff keeps waiting until the lock is secure" "polls: $(<"$poll_count")"
+grep -qx 'system-lock cleanup' "$call_log" || fail "idle handoff cleans up once a later poll is secure"
+
+pass "Idle lock handoff waits for a secure lock, then cleans up without locking again"

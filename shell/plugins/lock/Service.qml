@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
 import "FingerprintModel.js" as FingerprintModel
+import "Handoff.js" as Handoff
 
 Item {
   id: root
@@ -398,7 +399,7 @@ Item {
     // Lock-surface mapping reports the pointer's existing position. Ignore it
     // until the secure multi-output lock has settled; later movement is real
     // user input and may reveal the authentication view.
-    if (root.idleTransitionConcealed && !root.idleTransitionPointerArmed) return
+    if (Handoff.ignoresPointerWake(root.idleTransitionConcealed, root.idleTransitionPointerArmed)) return
     runWake()
   }
 

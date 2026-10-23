@@ -90,6 +90,62 @@ function dismissStateAfter(state) {
   return { settled: false, dismiss: false }
 }
 
+// Seat dismissal must stop the lock deadline before the covering windows
+// come down. A lock already in handoff, or one already tearing the
+// screensaver down, does not start another pass.
+function dismissStart(state) {
+  var lockHandoff = !!(state && state.lockHandoff)
+  var dismissInFlight = !!(state && state.dismissInFlight)
+  var windowCount = state && state.windowCount > 0 ? state.windowCount : 0
+  if (lockHandoff || dismissInFlight || windowCount === 0) return { start: false }
+  return { start: true, stopScreensaverTimer: true, stopLockTimer: true }
+}
+
+function lockHandoffStart(state) {
+  if (state && state.dismissInFlight) return { start: false }
+  return { start: true }
+}
+
+// Stay Awake during an in-flight lock keeps the handoff guard. Otherwise a
+// still-visible screensaver stays tracked so seat dismissal can re-arm.
+function cancelIdleCyclePlan(state) {
+  var lockHandoff = !!(state && state.lockHandoff)
+  if (state && state.lockProcessRunning) {
+    return {
+      lockHandoff: lockHandoff,
+      holdHandoff: lockHandoff,
+      resetWindows: false,
+      rearmDismiss: false
+    }
+  }
+  if (!(state && state.windowCount > 0)) {
+    return { lockHandoff: false, holdHandoff: false, resetWindows: true, rearmDismiss: false }
+  }
+  return {
+    lockHandoff: false,
+    holdHandoff: false,
+    resetWindows: false,
+    rearmDismiss: !!(state && state.launchComplete)
+  }
+}
+
+function lockExitPlan(state) {
+  var windowCount = state && state.windowCount > 0 ? state.windowCount : 0
+  if (state && state.exitCode === 0) {
+    return { lockHandoff: false, resetWindows: true, rearmDismiss: false }
+  }
+  if (windowCount > 0) return { lockHandoff: false, resetWindows: false, rearmDismiss: true }
+  return { lockHandoff: false, resetWindows: true, rearmDismiss: false }
+}
+
+// A window that maps after launch was already marked complete must restart
+// the arm timer. One that completes launch now is handled by that path.
+function lateScreensaverWindowPlan(state) {
+  var already = !!(state && state.alreadyLaunchComplete)
+  var completesNow = !!(state && state.completesNow)
+  return { clearSettled: true, restartArmTimer: already && !completesNow }
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     secondsFromConfig: secondsFromConfig,
@@ -98,6 +154,11 @@ if (typeof module !== "undefined") {
     eventParts: eventParts,
     screensaverWindowsAfter: screensaverWindowsAfter,
     screensaverLaunchCompleteAfter: screensaverLaunchCompleteAfter,
-    dismissStateAfter: dismissStateAfter
+    dismissStateAfter: dismissStateAfter,
+    dismissStart: dismissStart,
+    lockHandoffStart: lockHandoffStart,
+    cancelIdleCyclePlan: cancelIdleCyclePlan,
+    lockExitPlan: lockExitPlan,
+    lateScreensaverWindowPlan: lateScreensaverWindowPlan
   }
 }

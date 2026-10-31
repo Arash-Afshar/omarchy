@@ -84,16 +84,43 @@ fi
 # Dev-aware skill symlinks. Cannot live in /etc/skel because OMARCHY_PATH may
 # point at a dev checkout (omarchy dev link) where the target differs.
 # Loops every skill directory, so shipping a new one needs no edit here.
-mkdir -p ~/.agents/skills ~/.claude/skills ~/.codex/skills ~/.pi/agent/skills ~/.gemini/config/skills ~/.hermes/skills
+# pi moves its agent tree with PI_CODING_AGENT_DIR (expanding a leading ~ or
+# ~/), and omp rides that same tree when it is set -- but the default trees
+# keep whatever was provisioned before a move, so they are linked too.
+pi_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+case "$pi_agent_dir" in
+  "~") pi_agent_dir="$HOME" ;;
+  "~/"*) pi_agent_dir="$HOME/${pi_agent_dir#"~/"}" ;;
+esac
+skill_dirs=(
+  "$HOME/.agents/skills"
+  "$HOME/.claude/skills"
+  "$HOME/.codex/skills"
+  "$HOME/.pi/agent/skills"
+  "$pi_agent_dir/skills"
+  "$HOME/.omp/agent/skills"
+  "$HOME/.gemini/config/skills"
+  "$HOME/.hermes/skills"
+)
+mkdir -p "${skill_dirs[@]}"
 for skill in "$OMARCHY_PATH"/default/agents/skills/*/; do
   skill=${skill%/}
   name=${skill##*/}
-  ln -sfn "$skill" ~/.agents/skills/"$name"
-  ln -sfn "$skill" ~/.claude/skills/"$name"
-  ln -sfn "$skill" ~/.codex/skills/"$name"
-  ln -sfn "$skill" ~/.pi/agent/skills/"$name"
-  ln -sfn "$skill" ~/.gemini/config/skills/"$name"
-  ln -sfn "$skill" ~/.hermes/skills/"$name"
+  for dir in "${skill_dirs[@]}"; do
+    ln -sfn "$skill" "$dir/$name"
+  done
+  # pi and omp profiles carry whole trees of their own; link into the ones
+  # that already exist so a profile created after provisioning is the only
+  # one left without skills.
+  for base in "$HOME/.pi/profiles" "$HOME/.omp/profiles"; do
+    if [[ -d $base ]]; then
+      for profile in "$base"/*/; do
+        [[ -d $profile ]] || continue
+        mkdir -p "$profile/agent/skills"
+        ln -sfn "$skill" "$profile/agent/skills/$name"
+      done
+    fi
+  done
   if [[ -d ~/.hermes/profiles ]]; then
     for profile in ~/.hermes/profiles/*/; do
       [[ -d $profile ]] || continue

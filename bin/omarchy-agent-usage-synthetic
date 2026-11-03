@@ -34,6 +34,7 @@ from collectors import (  # noqa: E402
   emit,
   number,
   obj,
+  omp_api_key,
   open_json,
   opencode_db,
   pi_session_roots,
@@ -145,11 +146,12 @@ def api_key():
   # a profile's sessions are counted, so a sign-in made only there must read
   # its quotas too, without outranking the defaults.
   agent_dirs = pi_agent_dirs()
-  paths = [agent_dir / "auth.json" for agent_dir in agent_dirs[:2]]
-  paths.append(data_home() / "opencode" / "auth.json")
-  paths.extend(agent_dir / "auth.json" for agent_dir in agent_dirs[2:])
-  for path in paths:
-    key = stored_key(path)
+  # omp keeps its sign-ins in agent.db, with its old auth.json as a fallback.
+  lookups = [lambda: stored_key(agent_dirs[0] / "auth.json"), lambda: omp_api_key((PROVIDER,))[0],
+             lambda: stored_key(data_home() / "opencode" / "auth.json")]
+  lookups.extend(lambda path=agent_dir / "auth.json": stored_key(path) for agent_dir in agent_dirs[2:])
+  for lookup in lookups:
+    key = lookup()
     if key:
       return key
   return ""

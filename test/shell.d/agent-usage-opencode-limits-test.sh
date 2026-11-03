@@ -189,9 +189,10 @@ pi_auth(home() / ".omp" / "agent", "opencode", "from_omp")
 expect("OpenCode collector reads omp's credential after pi's", candidates(), ["from_pi", "from_omp"])
 os.environ["PI_CODING_AGENT_DIR"] = str(home() / "pi-moved")
 pi_auth(home() / "pi-moved", "opencode", "from_moved")
-expect("OpenCode collector reads pi's credential where PI_CODING_AGENT_DIR moves it", candidates(), ["from_moved", "from_omp"])
+omp_key(home() / "pi-moved", "opencode", "from_omp_moved")
+expect("OpenCode collector reads pi's and omp's credentials where PI_CODING_AGENT_DIR moves them", candidates(), ["from_moved", "from_omp_moved"])
+(home() / "pi-moved" / "agent.db").unlink()
 pi_auth(home() / "pi-moved", "opencode", "!pass show opencode")
-pi_auth(home() / ".omp" / "agent", "opencode", "$OPENCODE_KEY")
 expect("OpenCode collector never sends a pi !command or $VAR entry as a key", candidates(), [])
 
 # OpenCode V2 keeps its credentials in the database: a Go key first, and the

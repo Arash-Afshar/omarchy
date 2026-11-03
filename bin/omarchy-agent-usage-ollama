@@ -38,6 +38,7 @@ from collectors import (  # noqa: E402
   config_home,
   emit,
   limits_cache_path as shared_limits_cache_path,
+  omp_api_key,
   open_json,
   opencode_db,
   pi_session_roots,
@@ -90,12 +91,12 @@ def api_key() -> str:
   # pi and omp store the Ollama Cloud key they signed in with; either one
   # proves the account, and the balance endpoint accepts the same key. Only a
   # literal key is taken: a `$VAR` or `!command` entry is resolved by pi alone.
-  for auth_path in (pi_agent_dir() / "auth.json", Path.home() / ".omp" / "agent" / "auth.json"):
-    entry = read_json(auth_path).get(PROVIDER)
-    key = str(entry.get("key") or "").strip() if isinstance(entry, dict) else ""
-    if key and not key.startswith(("!", "$")):
-      return key
-  return ""
+  entry = read_json(pi_agent_dir() / "auth.json").get(PROVIDER)
+  key = str(entry.get("key") or "").strip() if isinstance(entry, dict) else ""
+  if key and not key.startswith(("!", "$")):
+    return key
+  # omp keeps its sign-ins in agent.db (its old auth.json as a fallback).
+  return omp_api_key((PROVIDER,))[0]
 
 
 # ---------------------------------------------------------------- local scan

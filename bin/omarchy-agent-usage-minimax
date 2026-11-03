@@ -36,6 +36,7 @@ from collectors import (  # noqa: E402
   cached_scan,
   data_home,
   emit,
+  omp_api_key,
   open_json,
   opencode_db,
   pi_session_roots,
@@ -174,10 +175,15 @@ def credentials() -> tuple[str, str]:
 
   # The key opencode or pi signed in to MiniMax with; a China-region
   # provider's key only answers on the China host.
-  for path in (data_home() / "opencode" / "auth.json", pi_agent_dir() / "auth.json", Path.home() / ".omp" / "agent" / "auth.json"):
-    # Only the provider ids MiniMax bills: a key saved under any other
-    # name belongs to a gateway, and is never sent to MiniMax.
-    api_key, provider = saved_key(path, PROVIDERS)
+  # Only the provider ids MiniMax bills: a key saved under any other name
+  # belongs to a gateway, and is never sent to MiniMax. omp keeps its sign-ins
+  # in agent.db, with its old auth.json as a fallback.
+  for lookup in (
+    lambda: saved_key(data_home() / "opencode" / "auth.json", PROVIDERS),
+    lambda: saved_key(pi_agent_dir() / "auth.json", PROVIDERS),
+    lambda: omp_api_key(PROVIDERS),
+  ):
+    api_key, provider = lookup()
     if api_key:
       return api_key, override or (CN_BASE_URL if provider.startswith("minimax-cn") else DEFAULT_BASE_URL)
   return "", override or DEFAULT_BASE_URL

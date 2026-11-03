@@ -47,6 +47,7 @@ from collectors import (  # noqa: E402
   jwt_claims,
   now_ms,
   number,
+  omp_agent_db,
   open_json,
   opencode_db,
   pi_session_roots,
@@ -152,7 +153,8 @@ def harness_login(source, data):
 
 
 def omp_logins():
-  database = Path.home() / ".omp" / "agent" / "agent.db"
+  # Where omp keeps agent.db: PI_CODING_AGENT_DIR, a profile, or XDG data.
+  database = omp_agent_db()
   if not database.is_file():
     return []
   try:
@@ -178,7 +180,7 @@ def omp_logins():
 
 
 def pi_agent_dir():
-  return Path(os.environ.get("PI_CODING_AGENT_DIR") or (Path.home() / ".pi" / "agent"))
+  return Path(os.environ.get("PI_CODING_AGENT_DIR") or (Path.home() / ".pi" / "agent")).expanduser()
 
 
 def pi_logins():

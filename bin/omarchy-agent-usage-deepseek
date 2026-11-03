@@ -42,6 +42,7 @@ from collectors import (  # noqa: E402
   now_ms,
   number,
   obj,
+  omp_api_key,
   open_json,
   opencode_db,
   pi_session_roots,
@@ -220,7 +221,7 @@ def api_key() -> str:
     return env_key
   for read in (
     lambda: read_json_key(pi_agent_dir() / "auth.json", "deepseek"),
-    lambda: read_json_key(Path.home() / ".omp" / "agent" / "auth.json", "deepseek"),
+    lambda: omp_api_key(("deepseek",))[0],
     lambda: read_json_key(data_home() / "opencode" / "auth.json", "deepseek"),
     lambda: read_dsh_credentials_key(dsh_home() / ".credentials.yaml"),
     lambda: read_dotenv_key(dsh_home() / ".env"),

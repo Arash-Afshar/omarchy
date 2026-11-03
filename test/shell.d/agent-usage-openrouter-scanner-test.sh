@@ -90,6 +90,16 @@ opencode_db(message=[("m1", "ses_a", oc_v1("openrouter", 100, model="openai/gpt-
 record = openrouter(OPENROUTER_API_KEY="sk-test")
 expect("a model is named without its provider prefix", sorted(record["modelUsage"]), ["gpt-4o-mini"], record)
 
+# #8270: a Pi user who never signed in to Claude or Codex still surfaces: a
+# pi session billed by an OpenRouter key counts under OpenRouter.
+sandbox()
+write_pi_session(home() / ".pi" / "agent" / "sessions" / "project" / "pi.jsonl",
+                 [pi_reply("openrouter", id="or1", model="deepseek/deepseek-chat", usage={"input": 40, "output": 16})])
+record = openrouter(OPENROUTER_API_KEY="sk-test")
+expect("a pi session on an OpenRouter key counts under OpenRouter",
+       [sorted(record["modelUsage"]), record["modelUsage"]["deepseek-chat"], record["todayTotalTokens"], record["hasLocalStats"]],
+       [["deepseek-chat"], {"inputTokens": 40, "outputTokens": 16, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0}, 56, True], record)
+
 # /activity folds prompt tokens into input and completion tokens into output,
 # one bucket per model. Reasoning is part of the completion count (OpenRouter's
 # AI SDK provider reads text = completion - reasoning), so it is never added
@@ -182,11 +192,12 @@ expect("local usage without a key makes the record ready and waits for auth",
 expect("and says how to add one", record["authHelpText"].startswith("Set OPENROUTER_API_KEY"), True, record)
 
 # The key pi or omp saved with /login is used, a `$VAR` or `!command` entry
-# is left to pi, and PI_CODING_AGENT_DIR moves pi's.
+# is left to pi, and PI_CODING_AGENT_DIR moves pi's and omp's both.
 sandbox()
 pi_auth(None, "openrouter", "sk-pi")
-pi_auth(home() / ".omp" / "agent", "openrouter", "sk-omp")
+pi_auth(home() / ".omp" / "agent", "openrouter", "sk-omp-default")
 pi_auth(home() / "moved", "openrouter", "$OPENROUTER_KEY")
+omp_key(home() / "moved", "openrouter", "sk-omp")
 saved = [module.api_key({})]
 os.environ["PI_CODING_AGENT_DIR"] = str(home() / "moved")
 saved.append(module.api_key({}))

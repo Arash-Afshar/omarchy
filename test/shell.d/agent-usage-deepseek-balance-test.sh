@@ -154,18 +154,21 @@ def saved_key():
 
 pi_auth(home() / ".omp" / "agent", "deepseek", "key-omp")
 expect("DeepSeek collector reads the key omp saved", saved_key(), "key-omp")
+omp_key(None, "deepseek", "key-omp-disabled")
+omp_key(None, "deepseek", "key-omp-db")
+omp_key(None, "deepseek", "key-omp-revoked", disabled="revoked")
+expect("DeepSeek collector reads omp's newest enabled key from agent.db ahead of its old auth.json", saved_key(), "key-omp-db")
 pi_auth(None, "deepseek", "key-pi")
 expect("DeepSeek collector prefers the key pi saved", saved_key(), "key-pi")
 os.environ["PI_CODING_AGENT_DIR"] = str(home() / "pi-moved")
 pi_auth(home() / "pi-moved", "deepseek", "key-moved")
 expect("DeepSeek collector reads pi's key where PI_CODING_AGENT_DIR moves it", saved_key(), "key-moved")
 pi_auth(home() / "pi-moved", "deepseek", "!pass show deepseek")
-pi_auth(home() / ".omp" / "agent", "deepseek", "$DEEPSEEK_KEY")
 expect("DeepSeek collector never takes a pi !command or $VAR entry as a key", saved_key(), "")
 opencode_auth(None, "deepseek", "key-opencode")
 expect("DeepSeek collector reads the key opencode saved", saved_key(), "key-opencode")
-pi_auth(home() / ".omp" / "agent", "deepseek", "key-omp")
-expect("DeepSeek collector prefers omp's key to opencode's", saved_key(), "key-omp")
+omp_key(home() / "pi-moved", "deepseek", "key-omp")
+expect("DeepSeek collector prefers omp's key, under PI_CODING_AGENT_DIR as omp keeps it, to opencode's", saved_key(), "key-omp")
 
 # The balance is kept per API host: another host, the same key or not, is
 # another account, and never shows this one's balance.

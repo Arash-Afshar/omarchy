@@ -52,7 +52,7 @@ DEVELOPER_PREFIXES = (
   "AGY_", "ANTHROPIC_", "CLAUDE_", "CLOUD_CODE_", "CODEX_", "COPILOT_", "CURSOR_", "DEEPSEEK_",
   "DEVIN_", "DSH_", "FIREWORKS_", "GH_", "GITHUB_", "GROK_", "HERMES_", "KIMCHI_", "KIMI_",
   "MAVIS_", "MINIMAX_", "MISE_", "MMX_", "MUSE_", "OLLAMA_", "OPENAI_", "OPENCLAW_", "OPENCODE_", "OPENROUTER_",
-  "PI_CODING_AGENT_", "QWEN_", "SYNTHETIC_", "VIBE_", "ZAI_", "ZHIPU",
+  "OMP_", "PI_CODING_AGENT_", "PI_PROFILE", "QWEN_", "SYNTHETIC_", "VIBE_", "ZAI_", "ZHIPU",
 )
 
 # A request that slips past FakeHttp or a stub server goes to a port nothing
@@ -626,6 +626,22 @@ def pi_auth(directory: str | Path | None, provider: str, key: str) -> Path:
   default, merged with what is there."""
   directory = Path(directory) if directory else home() / ".pi" / "agent"
   return _merge(directory / "auth.json", provider, {"type": "api_key", "key": key})
+
+
+def omp_key(directory: str | Path | None, provider: str, key: str, disabled: str | None = None) -> Path:
+  """A key omp keeps from /login: a row in <dir>/agent.db (~/.omp/agent by
+  default), in the auth_credentials schema omp 18 writes."""
+  path = (Path(directory) if directory else home() / ".omp" / "agent") / "agent.db"
+  path.parent.mkdir(parents=True, exist_ok=True)
+  conn = sqlite3.connect(path)
+  conn.execute("CREATE TABLE IF NOT EXISTS auth_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, "
+               "credential_type TEXT NOT NULL, data TEXT NOT NULL, disabled_cause TEXT DEFAULT NULL, identity_key TEXT DEFAULT NULL, "
+               "created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0)")
+  conn.execute("INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause) VALUES (?, 'api_key', ?, ?)",
+               (provider, json.dumps({"key": key}), disabled))
+  conn.commit()
+  conn.close()
+  return path
 
 
 def opencode_auth(path: str | Path | None, provider: str, key: str) -> Path:

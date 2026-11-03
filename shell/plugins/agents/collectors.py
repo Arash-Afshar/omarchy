@@ -669,6 +669,91 @@ def pi_session_roots() -> list[Path]:
   return canonical_roots(roots)
 
 
+def omp_profile() -> str:
+  """The omp profile the environment selects: OMP_PROFILE, else PI_PROFILE.
+  An explicitly empty OMP_PROFILE selects the default profile, as omp does."""
+  if "OMP_PROFILE" in os.environ:
+    return os.environ["OMP_PROFILE"].strip()
+  return os.environ.get("PI_PROFILE", "").strip()
+
+
+def omp_agent_dir() -> Path:
+  """Where omp keeps its agent tree, resolved as @oh-my-pi/pi-utils' dirs.ts
+  does: a named profile under ~/.omp/profiles/<name>/agent, which ignores
+  PI_CODING_AGENT_DIR; otherwise PI_CODING_AGENT_DIR (a leading ~ expanded),
+  else ~/.omp/agent."""
+  profile = omp_profile()
+  if profile:
+    return Path.home() / ".omp" / "profiles" / profile / "agent"
+  configured = os.environ.get("PI_CODING_AGENT_DIR", "").strip()
+  return Path(configured).expanduser() if configured else Path.home() / ".omp" / "agent"
+
+
+def omp_agent_db() -> Path:
+  """omp's agent.db, which holds its settings and sign-ins. It is XDG data:
+  with the default agent tree and an existing $XDG_DATA_HOME/omp (after
+  `omp config init-xdg`), omp keeps it there instead of in the agent tree."""
+  profile = omp_profile()
+  default_tree = profile or not os.environ.get("PI_CODING_AGENT_DIR", "").strip()
+  xdg_data = os.environ.get("XDG_DATA_HOME", "").strip()
+  if default_tree and xdg_data:
+    xdg_root = Path(xdg_data) / "omp"
+    if profile:
+      xdg_root = xdg_root / "profiles" / profile
+    if xdg_root.is_dir():
+      return xdg_root / "agent.db"
+  return omp_agent_dir() / "agent.db"
+
+
+def omp_credentials(providers: Iterable[str], credential_type: str = "api_key") -> list[tuple[str, dict[str, Any]]]:
+  """(provider, data) for every enabled credential omp keeps for `providers`,
+  newest first. Opened read-only; omp's store is never written."""
+  wanted = [str(provider) for provider in providers]
+  database = omp_agent_db()
+  if not wanted or not database.is_file():
+    return []
+  try:
+    conn = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+    try:
+      rows = conn.execute(
+        "SELECT provider, data FROM auth_credentials WHERE credential_type = ? AND disabled_cause IS NULL "
+        f"AND provider IN ({','.join('?' * len(wanted))}) ORDER BY id DESC",
+        (credential_type, *wanted),
+      ).fetchall()
+    finally:
+      conn.close()
+  except sqlite3.Error:
+    return []
+  found = []
+  for provider, data in rows:
+    try:
+      decoded = json.loads(data)
+    except (TypeError, ValueError):
+      continue
+    if isinstance(decoded, dict):
+      found.append((str(provider), decoded))
+  return found
+
+
+def omp_api_key(providers: Iterable[str]) -> tuple[str, str]:
+  """(key, provider) of the newest literal API key omp keeps for any of
+  `providers`: agent.db first, where omp has stored sign-ins since it moved
+  off auth.json, then that legacy auth.json in the agent tree. A `$VAR` or
+  `!command` entry is resolved by omp alone, so it is passed over."""
+  providers = list(providers)
+  for provider, data in omp_credentials(providers):
+    key = str(data.get("key") or "").strip()
+    if key and not key.startswith(("!", "$")):
+      return key, provider
+  legacy = read_json(omp_agent_dir() / "auth.json")
+  for provider in providers:
+    entry = legacy.get(provider)
+    key = str(entry.get("key") or "").strip() if isinstance(entry, dict) else ""
+    if key and not key.startswith(("!", "$")):
+      return key, provider
+  return "", ""
+
+
 def canonical_roots(roots: Iterable[Path]) -> list[Path]:
   """Session roots by realpath, so an override that aliases another root
   through a symlink is scanned under one spelling. A root inside another is

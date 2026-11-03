@@ -17,8 +17,10 @@ source "$SHELL_TEST_DIR/agent-usage-helpers.sh"
 
 agent_sandbox
 
-python3 - <<'PY'
+python3 - "$ROOT/bin/omarchy-agent-usage-kimi" <<'PY'
 import stat
+import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler
 
 from agent_usage_fixtures import *
@@ -435,6 +437,127 @@ def switched_cache(root):
   expect("an answer is never kept under a token it wasn't asked with", record()["limits"], [])
 
 
+# Pi's kimi-coding sign-in is the last credential source: an account that
+# only exists in Pi's store is counted (Pi resolves the credential), and no
+# other credential, home, or directory may borrow it.
+def pi_contract(root):
+  secret = "PI_FIXTURE_SECRET"
+  pi_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+  pi_dir.mkdir()
+  store = pi_dir / "auth.json"
+  stored = json.dumps({"kimi-coding": {"type": "oauth", "access": "PI_STORED_SECRET"}})
+  mock_bin = root / "bin"
+  mock_bin.mkdir()
+  executable = mock_bin / "pi"
+  executable.write_text(f"#!{sys.executable}\n" + '''
+import json, os, subprocess, sys
+from pathlib import Path
+assert sys.argv[1:] == ["auth", "check", "--provider", "kimi-coding", "--json", "--credentials"]
+assert sys.stdin.read() == ""
+Path(os.environ["KIMI_TEST_PI_CALL"]).touch()
+mode = os.environ["KIMI_TEST_PI_MODE"]
+secret = "PI_FIXTURE_SECRET"
+sys.stderr.write(secret)
+if mode == "timeout":
+  subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+  sys.exit(0)  # The child holds stdout open after Pi exits.
+if mode == "malformed":
+  print(secret)
+  sys.exit(0)
+status = {"missing": "not_ready", "invalid": "invalid"}.get(mode, "ready")
+print(json.dumps({"status": status, "provider": "kimi-coding", "authType": mode,
+                  "credentials": secret, "error": secret}))
+sys.exit({"not_ready": 1, "invalid": 2}.get(status, 0))
+''')
+  executable.chmod(0o755)
+  original_path = os.environ["PATH"]
+  os.environ.update(PATH=str(mock_bin) + os.pathsep + original_path,
+                    KIMI_TEST_PI_CALL=str(root / "pi-called"), KIMI_TEST_PI_MODE="invalid")
+  try:
+    # No sign-in, unrelated sign-ins and damaged stores never start the lazy
+    # launcher (even when Pi is on PATH). The real collector must stay quiet.
+    del os.environ["KIMI_CODE_HOME"]
+    for content in (None, "{}", '{"openai-codex": {"type": "oauth"}}', "[]", "broken"):
+      if content is not None:
+        store.write_text(content)
+      result = subprocess.run([sys.argv[1], "--force"], capture_output=True, timeout=5)
+      assert result.returncode == 0 and not json.loads(result.stdout)["ready"]
+      assert not (root / "pi-called").exists(), "unsigned background refresh invoked Pi"
+    store.write_text(stored)
+    os.environ["KIMI_CODE_HOME"] = str(root / "code home")
+    assert not record()["ready"]
+    assert not (root / "pi-called").exists(), "explicit Kimi home borrowed Pi's account"
+    del os.environ["KIMI_CODE_HOME"]
+    scanner.CREDENTIALS_DIR = Path.home() / ".kimi-code" / "credentials"
+    scanner.CREDENTIALS_PATH = scanner.CREDENTIALS_DIR / "kimi-code.json"
+    os.environ["KIMI_API_KEY"] = "AT_env"
+    assert record()["ready"]
+    del os.environ["KIMI_API_KEY"]
+    credentials("AT_cli", time.time() + 3600)
+    assert record()["ready"]
+    state["usage_status"] = 401
+    data = record()
+    assert "kimi login" in data["authHelpText"], "a refused sign-in lost its remedy"
+    state.clear()
+    credentials()
+    state["token_status"] = 401
+    data = record()
+    assert data["usageStatusText"] == "Sign-in expired", "a refused refresh was not reported"
+    state.clear()
+    assert not (root / "pi-called").exists(), "Pi ran despite higher-priority credentials"
+    scanner.CREDENTIALS_PATH.unlink()
+    before = set(root.rglob("*"))
+    for auth_type in ("oauth", "api_key"):
+      stored = json.dumps({"kimi-coding": {"type": auth_type}})
+      store.write_text(stored)
+      os.environ["KIMI_TEST_PI_MODE"] = auth_type
+      data = record()
+      assert data["ready"] and data["limits"], "Pi credentials did not reach the usage endpoint"
+      assert auth_header() == "Bearer " + secret, "Pi credential was not used as a bearer"
+      assert secret not in json.dumps(data), "Pi credential escaped into the usage record"
+      state["usage_status"] = 401
+      assert "/login kimi-coding" in record()["authHelpText"], "Pi rejection recommended the wrong login"
+      state.clear()
+    assert store.read_text() == stored, "collector changed Pi's credentials"
+    for path in set(root.rglob("*")) - before:
+      if path.is_file():
+        assert secret not in path.read_text(), "Pi credential was persisted"
+    # The default store works too; an explicit Pi directory must not fall
+    # back to it and silently select another account.
+    default_store = Path.home() / ".pi" / "agent" / "auth.json"
+    default_store.parent.mkdir(parents=True)
+    store.rename(default_store)
+    del os.environ["PI_CODING_AGENT_DIR"]
+    assert record()["ready"], "default Pi sign-in was not discovered"
+    (root / "pi-called").unlink()
+    os.environ["PI_CODING_AGENT_DIR"] = str(pi_dir)
+    data = record()
+    assert data["usageStatusText"] == "Waiting for auth" and not (root / "pi-called").exists(), "Pi directory override was ignored"
+    default_store.rename(store)
+    reqs.clear()
+    for mode, hint in (("missing", "/login kimi-coding"), ("invalid", "/login kimi-coding"),
+                       ("malformed", "update Pi")):
+      os.environ["KIMI_TEST_PI_MODE"] = mode
+      result = subprocess.run([sys.argv[1], "--force"], stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=5)
+      data = json.loads(result.stdout)
+      assert data["usageStatusText"] == "Waiting for auth" and hint in data["authHelpText"], "Pi lookup lost actionable recovery help"
+      assert secret.encode() not in result.stdout + result.stderr, "Pi output or diagnostics leaked"
+    assert not reqs, "collector probed quota with unresolved Pi credentials"
+    os.environ["KIMI_TEST_PI_MODE"] = "timeout"
+    scanner.PI_AUTH_TIMEOUT_SECONDS = 0.2
+    start = time.monotonic()
+    data = record()
+    assert data["usageStatusText"] == "Waiting for auth" and "timed out" in data["authHelpText"]
+    assert not data.get("retryAdvised"), "local Pi failure requested a service retry"
+    assert time.monotonic() - start < 3, "Pi lookup exceeded its timeout with an inherited pipe"
+    executable.unlink()
+    os.environ["PATH"] = str(mock_bin)
+    assert "PATH" in record()["authHelpText"], "missing Pi did not explain how to recover"
+  finally:
+    os.environ["PATH"] = original_path
+
+
 cases = {"contract": contract, "env_key": env_key, "stores": stores, "share_dir": share_dir, "home": home_isolation, "static": static_token,
          "refresh": refresh, "cli_lock": cli_lock, "stale_lock": stale_lock,"lock_failure": lock_failure, "heartbeat": heartbeat,
          "private_write": private_write, "concurrent_signin": concurrent_signin, "concurrent_logout": concurrent_logout,
@@ -442,7 +565,7 @@ cases = {"contract": contract, "env_key": env_key, "stores": stores, "share_dir"
          "waiting_for_auth": waiting_for_auth, "trust": trust, "destination": destination, "redirects": redirects,
          "quota": modern_quota, "legacy_quota": legacy_quota, "cache_identity": cache_identity,
          "rotation_cache": rotated_cache, "switched_cache": switched_cache, "empty_answer": empty_answer,
-         "odd_answer": odd_answer, "odd_resets": odd_resets}
+         "odd_answer": odd_answer, "odd_resets": odd_resets, "pi_contract": pi_contract}
 selected = os.environ.get("OMARCHY_TEST_KIMI_CASE")
 for name, case in cases.items():
   if selected and name != selected:
@@ -453,6 +576,7 @@ for name, case in cases.items():
   root = Path(tempfile.mkdtemp(prefix="kimi with spaces.", dir=os.environ["SANDBOX"]))
   sandbox(root)
   os.environ["KIMI_CODE_HOME"] = str(root / "code home")
+  os.environ["PI_CODING_AGENT_DIR"] = str(root / "pi agent")
   scanner = load_collector("kimi")
   case(root)
 PY

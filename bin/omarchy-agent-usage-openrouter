@@ -59,6 +59,7 @@ from collectors import (  # noqa: E402
   limits_cache_path,
   now_ms,
   number,
+  omp_api_key,
   open_json,
   open_limits,
   opencode_db,
@@ -127,7 +128,7 @@ def api_key(config: dict[str, Any]) -> str:
     str(os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or read_opencode_key(data_home() / "opencode" / "auth.json")
     or read_pi_key(pi_agent_dir() / "auth.json")
-    or read_pi_key(Path.home() / ".omp" / "agent" / "auth.json")
+    or omp_api_key(("openrouter",))[0]
     or str(config.get("apiKey") or "").strip()
   )
 

@@ -148,6 +148,20 @@ expect("Z.ai collector reads the key pi saved in auth.json", list(load_collector
 pi_auth(home() / ".omp" / "agent", "zai", "omp-saved")
 expect("Z.ai collector prefers pi's auth.json to omp's", list(load_collector("zai").credentials()), ["pi-saved", "zai"])
 
+# The China coding plan's key: pi saves it under zai-coding-cn and reads it
+# from ZAI_CODING_CN_API_KEY, omp saves it under zhipu-coding-plan. Each asks
+# the BigModel host.
+sandbox()
+pi_auth(None, "zai-coding-cn", "pi-saved-cn")
+expect("Z.ai collector reads pi's China coding plan key for the BigModel host", list(load_collector("zai").credentials()), ["pi-saved-cn", "zhipu"])
+sandbox()
+pi_auth(home() / ".omp" / "agent", "zhipu-coding-plan", "omp-saved-cn")
+expect("Z.ai collector reads omp's China coding plan key for the BigModel host", list(load_collector("zai").credentials()), ["omp-saved-cn", "zhipu"])
+sandbox()
+os.environ["ZAI_CODING_CN_API_KEY"] = "env-cn"
+expect("Z.ai collector reads ZAI_CODING_CN_API_KEY for the BigModel host", list(load_collector("zai").credentials()), ["env-cn", "zhipu"])
+del os.environ["ZAI_CODING_CN_API_KEY"]
+
 # A pi `$VAR` or `!command` entry is pi's to resolve, never a key to send.
 pi_auth(None, "zai", "$ZAI_KEY")
 pi_auth(home() / ".omp" / "agent", "zai", "!pass show zai")

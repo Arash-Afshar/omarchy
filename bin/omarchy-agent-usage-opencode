@@ -38,6 +38,7 @@ from collectors import (  # noqa: E402
   emit,
   limits_cache_path as shared_limits_cache_path,
   number,
+  omp_api_key,
   open_json,
   opencode_db,
   pi_session_roots,
@@ -209,7 +210,8 @@ def credential_candidates():
   tokens += store_keys
   tokens.append(read_auth_key(data_home() / "opencode" / "auth.json"))
   tokens.append(read_auth_key(pi_agent_dir() / "auth.json"))
-  tokens.append(read_auth_key(Path.home() / ".omp" / "agent" / "auth.json"))
+  # omp keeps its sign-ins in agent.db, with its old auth.json as a fallback.
+  tokens.append(omp_api_key(PROVIDERS)[0])
   candidates = []
   for token in tokens:
     if token and token not in [c.token for c in candidates]:

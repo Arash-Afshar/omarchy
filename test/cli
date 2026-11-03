@@ -8,6 +8,10 @@ TMPDIRS=()
 
 export PATH="$ROOT/bin:$PATH"
 
+# The developer's own Pi tree is not the suite's scratch home, and the theme
+# sync below runs the real omarchy-theme-set-pi.
+unset PI_CODING_AGENT_DIR
+
 # Assigns a fresh temporary directory to the named variable and registers it for
 # removal on exit, so every scratch directory this suite makes is cleaned up.
 make_tmpdir() {

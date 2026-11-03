@@ -8,11 +8,19 @@ set -euo pipefail
 
 CURRENT_THEME_PATH="$HOME/.local/state/omarchy/current/theme"
 PI_SOURCE_PATH="$CURRENT_THEME_PATH/pi.json"
-PI_AGENT_DIR="$HOME/.pi/agent"
-PI_THEME_DIR="$PI_AGENT_DIR/themes"
-PI_THEME_PATH="$PI_THEME_DIR/omarchy-system.json"
-PI_SETTINGS_PATH="$PI_AGENT_DIR/settings.json"
+PI_THEME_NAME="omarchy-system"
 PI_ACTIVATE=0
+
+# Pi reads its whole agent tree from PI_CODING_AGENT_DIR when it is set, and
+# expands a leading ~ there itself, so a value from a service or a config file
+# may still carry one.
+PI_AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+if [[ $PI_AGENT_DIR == "~" || $PI_AGENT_DIR == "~/"* ]]; then
+  PI_AGENT_DIR="$HOME${PI_AGENT_DIR:1}"
+fi
+PI_THEME_DIR="$PI_AGENT_DIR/themes"
+PI_THEME_PATH="$PI_THEME_DIR/$PI_THEME_NAME.json"
+PI_SETTINGS_PATH="$PI_AGENT_DIR/settings.json"
 
 usage() {
   echo "Usage: omarchy-theme-set-pi [--activate]"
@@ -48,21 +56,35 @@ if (( PI_ACTIVATE == 0 )) && [[ ! -d $PI_AGENT_DIR ]]; then
   exit 0
 fi
 
+# Activation runs on every re-provision, so a theme the user picked in Pi
+# (anything but ours, or Pi's unset default) is theirs to keep.
 write_setting_theme() {
-  local tmp
+  local settings tmp current
 
   mkdir -p "$PI_AGENT_DIR"
 
-  if [[ -f $PI_SETTINGS_PATH ]]; then
-    tmp=$(mktemp "$PI_SETTINGS_PATH.XXXXXX")
-    jq '.theme = "omarchy-system"' "$PI_SETTINGS_PATH" >"$tmp"
-    mv "$tmp" "$PI_SETTINGS_PATH"
-  else
-    cat >"$PI_SETTINGS_PATH" <<EOF
-{
-  "theme": "omarchy-system"
-}
-EOF
+  if [[ ! -e $PI_SETTINGS_PATH ]]; then
+    printf '{\n  "theme": "%s"\n}\n' "$PI_THEME_NAME" >"$PI_SETTINGS_PATH"
+    return
+  fi
+
+  # Write through a symlinked settings file (a dotfiles checkout) rather than
+  # replacing the link, and keep the file's own mode.
+  settings=$(readlink -f "$PI_SETTINGS_PATH")
+
+  if ! current=$(jq -r 'if type == "object" then (.theme // "") else error("not an object") end' "$settings" 2>/dev/null); then
+    echo "Pi settings are not valid JSON, leaving them unchanged: $PI_SETTINGS_PATH" >&2
+    return 1
+  fi
+
+  # Already ours, or the user's own pick: nothing to write.
+  [[ -n $current ]] && return
+
+  tmp=$(mktemp "$settings.XXXXXX")
+  if ! { cp -p "$settings" "$tmp" && jq --arg theme "$PI_THEME_NAME" '.theme = $theme' "$settings" >"$tmp" && mv "$tmp" "$settings"; }; then
+    rm -f "$tmp"
+    echo "Could not update Pi settings: $PI_SETTINGS_PATH" >&2
+    return 1
   fi
 }
 

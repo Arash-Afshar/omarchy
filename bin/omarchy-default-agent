@@ -154,6 +154,13 @@ fi
 mkdir -p "$(dirname "$agent_file")"
 printf '%s\n' "$agent" >"$agent_file"
 
+# Oh My Pi is installed on demand rather than preinstalled, so becoming the
+# default agent is when its config is pointed at the generated theme. Pi gets
+# the same from install/user/theme.sh, since it is already on the machine.
+if [[ $agent == "omp" ]]; then
+  omarchy-theme-set-omp --activate || true
+fi
+
 if [[ $installing == "true" ]]; then
   # The installer's own window: the nearest ancestor Hyprland knows as a client.
   installer=""

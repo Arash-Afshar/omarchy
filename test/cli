@@ -520,6 +520,8 @@ pass "theme shell section override is merged"
 
 jq -e '.name == "omarchy-system" and .vars.panel == "#0f0f0f" and .vars.border == "#4d4d4d" and .colors.accent == "accent"' "$NEXT_THEME/pi.json" >/dev/null
 pass "pi theme template is generated from standard themed templates"
+jq -e '.name == "omarchy-system" and .vars.panel == "#0f0f0f" and .colors.statusLineBg == "panelAlt" and .colors.pythonMode == "color4"' "$NEXT_THEME/omp.json" >/dev/null || fail "omp theme template is generated from standard themed templates"
+pass "omp theme template carries Oh My Pi's full token set"
 cp "$NEXT_THEME/pi.json" "$CURRENT_THEME/pi.json"
 
 echo '{"name":"omarchy-system","vars":{"custom":"yes"}}' >"$NEXT_THEME/pi.json"

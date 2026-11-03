@@ -1,0 +1,99 @@
+#!/bin/bash
+
+# omarchy:summary=Sync the generated Omarchy theme to Oh My Pi
+# omarchy:args=[--activate]
+# omarchy:hidden=true
+
+set -euo pipefail
+
+OMP_SOURCE_PATH="$HOME/.local/state/omarchy/current/theme/omp.json"
+OMP_THEME_NAME="omarchy-system"
+OMP_ACTIVATE=0
+
+# Where omp keeps its agent tree (themes live in it, never under XDG): a named
+# profile (OMP_PROFILE, else PI_PROFILE) lives under ~/.omp/profiles and
+# ignores PI_CODING_AGENT_DIR; otherwise PI_CODING_AGENT_DIR moves the tree,
+# with a leading ~ expanded as omp expands it.
+omp_agent_dir() {
+  local profile dir
+
+  if [[ -v OMP_PROFILE ]]; then
+    profile=$OMP_PROFILE
+  else
+    profile=${PI_PROFILE:-}
+  fi
+
+  if [[ -n $profile ]]; then
+    printf '%s\n' "$HOME/.omp/profiles/$profile/agent"
+    return
+  fi
+
+  dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}"
+  if [[ $dir == "~" || $dir == "~/"* ]]; then
+    dir="$HOME${dir:1}"
+  fi
+  printf '%s\n' "$dir"
+}
+
+OMP_AGENT_DIR=$(omp_agent_dir)
+OMP_THEME_DIR="$OMP_AGENT_DIR/themes"
+OMP_THEME_PATH="$OMP_THEME_DIR/$OMP_THEME_NAME.json"
+
+usage() {
+  echo "Usage: omarchy-theme-set-omp [--activate]"
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --activate)
+      OMP_ACTIVATE=1
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ ! -f $OMP_SOURCE_PATH ]]; then
+  if (( OMP_ACTIVATE == 1 )); then
+    echo "Oh My Pi theme source missing: $OMP_SOURCE_PATH" >&2
+    echo "Run omarchy-theme-refresh after selecting an Omarchy theme." >&2
+    exit 1
+  fi
+
+  exit 0
+fi
+
+if (( OMP_ACTIVATE == 0 )) && [[ ! -d $OMP_AGENT_DIR ]]; then
+  exit 0
+fi
+
+# omp keeps its settings in config.yml, which it owns, migrates and quarantines
+# on parse errors, so its own CLI is the only safe writer. Both slots point at
+# the generated theme: omp picks the dark or the light one from the terminal's
+# background, and Omarchy themes the terminal too.
+write_setting_theme() {
+  if omarchy-cmd-missing omp; then
+    echo "Oh My Pi is not installed; synced the theme without activating it" >&2
+    return 0
+  fi
+
+  omp config set theme.dark "$OMP_THEME_NAME" >/dev/null
+  omp config set theme.light "$OMP_THEME_NAME" >/dev/null
+}
+
+# omp watches the active custom theme file and hot-reloads it, so running
+# sessions retint without a restart.
+mkdir -p "$OMP_THEME_DIR"
+tmp=$(mktemp "$OMP_THEME_PATH.XXXXXX")
+cp "$OMP_SOURCE_PATH" "$tmp"
+mv "$tmp" "$OMP_THEME_PATH"
+
+if (( OMP_ACTIVATE == 1 )); then
+  write_setting_theme
+fi

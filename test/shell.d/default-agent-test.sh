@@ -771,7 +771,18 @@ assert_bypass() {
   assert_launched "$agent" "skips permission prompts" "$@"
 }
 
-assert_launch pi pi "Review this project"
+assert_launch pi pi -- "Review this project"
+omarchy-agent --prompt update
+assert_launched pi "keeps a one-word prompt like update a message" pi -- update
+cat >"$mock_bin/omarchy-agent-local" <<'SH'
+#!/bin/bash
+[[ $1 == "overlay" ]] && printf '%s\n' "/overlays/$2-local.config" omarchy-local test-model
+SH
+chmod +x "$mock_bin/omarchy-agent-local"
+omarchy-agent --local-model test-model --prompt "Review this project"
+assert_launched pi "keeps the local model's options ahead of the prompt" \
+  pi --extension /overlays/pi-local.config --provider omarchy-local --model test-model -- "Review this project"
+rm "$mock_bin/omarchy-agent-local"
 assert_launch omp omp --auto-approve -- "Review this project"
 assert_launch opencode opencode --auto --prompt "Review this project"
 assert_launch ori ori code --interactive --prompt "Review this project"

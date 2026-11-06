@@ -14,7 +14,7 @@ scattered fixes listed under [Upstream issues and PRs](#upstream-issues-and-prs)
 Verified against **pi 1.5.0** (`@earendil-works/pi-coding-agent`, what the
 mise registry's `pi` installs) and **omp 18.16.0** (`@oh-my-pi/*`, mise's
 `oh-my-pi`, `github:can1357/oh-my-pi`), read from their published packages on
-2026-11-03, and against Omarchy `quattro` at `97316b0bb`.
+2026-11-03. The branches below sit on Omarchy `quattro` at `d5b32d24d`.
 
 ## What the agents actually do
 
@@ -34,9 +34,11 @@ These facts decide every fix below. Several open PRs assume otherwise.
 
 ## What first-class support needs
 
-1. **Theme Pi where Pi reads it.** Follow `PI_CODING_AGENT_DIR`, never
-   overwrite a theme the user picked in Pi, and treat `settings.json` with
-   care (symlinks, file mode, invalid JSON). *Done in branch 1.*
+1. **Theme Pi where Pi reads it.** Follow `PI_CODING_AGENT_DIR`, select
+   `omarchy-system` when Pi's theme is unset or still its own default
+   `system`, never overwrite any other theme the user picked in Pi, and
+   treat `settings.json` with care (symlinks, file mode, invalid JSON).
+   *Done in branch 1.*
 2. **Theme Oh My Pi.** Render a theme with omp's full token set, sync it to
    the profile-aware agent directory on every theme switch, and select it
    through omp's own CLI when omp becomes the default agent. *Done in
@@ -61,23 +63,24 @@ These facts decide every fix below. Several open PRs assume otherwise.
 
 ## Branches
 
-All on `Arash-Afshar/omarchy`, stacked in this order on `quattro` at `97316b0bb`. Each code branch adds exactly one commit to its predecessor, authored by Arash Afshar without a co-author trailer. The documentation branch is separate and adds one commit directly to the same `quattro` base.
+All on `Arash-Afshar/omarchy`, stacked in this order on `quattro` at `d5b32d24d`. The theme branch adds two commits; each later code branch adds one commit to its predecessor. Commits are authored by Arash Afshar without a co-author trailer. The documentation branch is separate and adds one commit directly to the same `quattro` base.
 
 ### 1. `pi/1-theme-set-pi-fixes`
 
-- [8e06a2e](https://github.com/Arash-Afshar/omarchy/commit/8e06a2ed67236ed843ecdabd796d9fe29e80ca13): Sync the Pi theme where `PI_CODING_AGENT_DIR` puts Pi, and keep the user's pick. Includes `test/shell.d/theme-set-pi-test.sh` and the `test/cli` environment guard so the suite cannot write a developer's real Pi tree. Fixes #13691 (theme half); supersedes #13693, #13718, the Pi half of #13713 and of #13983.
+- [d245c9362](https://github.com/Arash-Afshar/omarchy/commit/d245c93621ca46ebc42620f3010b37f547b9d267): Sync the Pi theme where `PI_CODING_AGENT_DIR` puts Pi, and keep the user's pick. Includes `test/shell.d/theme-set-pi-test.sh` and the `test/cli` environment guard so the suite cannot write a developer's real Pi tree. Fixes #13691 (theme half); supersedes #13693, #13718, the Pi half of #13713 and of #13983.
+- [419acda25](https://github.com/Arash-Afshar/omarchy/commit/419acda257ab45f4892f5fd139c60e05c9e4739d): Treat Pi's `system` theme as its unset default, so activation selects `omarchy-system`. Pi 1.5 writes `system` when no theme has been picked. Any other name, including `dark` and `light`, is left alone.
 
 ### 2. `pi/2-oh-my-pi-theme`
 
-- [5fb8afe](https://github.com/Arash-Afshar/omarchy/commit/5fb8afed9b434f624cf94bb84a560015fd65e5bf): Follow the Omarchy theme in Oh My Pi. Includes `default/themed/omp.json.tpl`, `bin/omarchy-theme-set-omp`, the theme-switch hook, default-agent activation, a migration for existing users, the theme test, the theme-staging allowlist entry and the manual note. The template was checked against `@oh-my-pi/pi-tui` 18.16.0's `theme-schema.json`: all 66 required tokens are present and every reference resolves. Ports #8333 (lepht), adding profile-aware paths.
+- [cf7b4367d](https://github.com/Arash-Afshar/omarchy/commit/cf7b4367df1a4f9d45ef353cba56b295ce9319d6): Follow the Omarchy theme in Oh My Pi. Includes `default/themed/omp.json.tpl`, `bin/omarchy-theme-set-omp`, the theme-switch hook, default-agent activation, a migration for existing users, the theme test, the theme-staging allowlist entry and the manual note. The template was checked against `@oh-my-pi/pi-tui` 18.16.0's `theme-schema.json`: all 66 required tokens are present and every reference resolves. Ports #8333 (lepht), adding profile-aware paths.
 
 ### 3. `pi/3-launch`
 
-- [a476a18](https://github.com/Arash-Afshar/omarchy/commit/a476a1811e8cbcad6325f28bb134d61f13484971): Pass Pi's starting prompt after `--`, keeping local-model options first. Includes normal, one-word and local-model prompt coverage. Pi half of #16724.
+- [1e3626ef6](https://github.com/Arash-Afshar/omarchy/commit/1e3626ef6c12b4adcef9648587a7efd11d58451b): Pass Pi's starting prompt after `--`, keeping local-model options first. Includes normal, one-word and local-model prompt coverage. Pi half of #16724.
 
 ### 4. `pi/4-usage-collector`
 
-- [9e1c33d](https://github.com/Arash-Afshar/omarchy/commit/9e1c33d13fc421361a28270ae1f2d80ac89895e5): Complete Pi and Oh My Pi usage integration. This single commit combines the six former usage commits without changing their final code tree:
+- [afb68b7fc](https://github.com/Arash-Afshar/omarchy/commit/afb68b7fc557c40f198383069fabd169c6835644): Complete Pi and Oh My Pi usage integration. This single commit combines the six former usage commits without changing their final code tree:
   - Find omp's Antigravity sign-in where `PI_CODING_AGENT_DIR` puts it (#16507).
   - Recognise the Z.ai provider ids and key variables used by Pi, omp and opencode (#16300).
   - Reuse Pi's Kimi sign-in through `pi auth check`, retaining credential precedence and timeout/security guards (#16431, Pillumz).

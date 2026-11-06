@@ -47,28 +47,31 @@ These facts decide every fix below. Several open PRs assume otherwise.
    "list" starts a session, and keep the local-model options ahead of it.
    *Done in branch 3.*
 4. **Count Pi and omp usage under the right provider, with the sign-ins they
-   actually keep.** Read omp's keys from `agent.db` in every collector,
+   actually keep.** Read omp's keys from `agent.db` in the collectors that use an omp sign-in,
    follow `PI_CODING_AGENT_DIR`, profiles and XDG for omp, reuse Pi's Kimi
    sign-in, and recognise the provider ids Pi and omp use for Z.ai.
-   *Done in branch 4, except Pi's ChatGPT sign-in (open item 1).*
+   *Done in branch 4.* Pi's ChatGPT sign-in is not part of it: those turns are
+   recorded as `openai` / `openai-responses`, the same shape as an OpenAI API
+   key, and the Codex collector counts only `openai-codex`.
 5. **Ship skills where Pi and omp read them.** Nothing to change:
    `omarchy-provision-user` already links every shipped skill into
    `~/.agents/skills`, which both read regardless of `PI_CODING_AGENT_DIR`,
    and both de-duplicate the extra links. #13836 is not needed. The
    redundant `~/.pi/agent/skills` links can go in the general cleanup of
    #6982 / #16783.
-6. **Let a local model open in omp**, as it does in Pi and OpenCode. *Open
-   item 2.*
-7. **Warn when a standalone omp shadows the mise one** (#14464). *Open item 3.*
+6. **Let a local model open in omp**, as it does in Pi and OpenCode. *Not in
+   these branches.*
+7. **Warn when a standalone omp shadows the mise one** (#14464). *Not in
+   these branches.*
 
 ## Branches
 
-All on `Arash-Afshar/omarchy`, stacked in this order on `quattro` at `d5b32d24d`. The theme branch adds two commits; each later code branch adds one commit to its predecessor. Commits are authored by Arash Afshar without a co-author trailer. The documentation branch is separate and adds one commit directly to the same `quattro` base.
+All on `Arash-Afshar/omarchy`, stacked in this order on `quattro` at `d5b32d24d`. The theme branch adds two commits; each later code branch adds one commit to its predecessor. Commits are authored by Arash Afshar without a co-author trailer. The documentation branch is separate and sits on the same `quattro` base.
 
 ### 1. `pi/1-theme-set-pi-fixes`
 
 - [d245c9362](https://github.com/Arash-Afshar/omarchy/commit/d245c93621ca46ebc42620f3010b37f547b9d267): Sync the Pi theme where `PI_CODING_AGENT_DIR` puts Pi, and keep the user's pick. Includes `test/shell.d/theme-set-pi-test.sh` and the `test/cli` environment guard so the suite cannot write a developer's real Pi tree. Fixes #13691 (theme half); supersedes #13693, #13718, the Pi half of #13713 and of #13983.
-- [419acda25](https://github.com/Arash-Afshar/omarchy/commit/419acda257ab45f4892f5fd139c60e05c9e4739d): Treat Pi's `system` theme as its unset default, so activation selects `omarchy-system`. Pi 1.5 writes `system` when no theme has been picked. Any other name, including `dark` and `light`, is left alone.
+- [419acda25](https://github.com/Arash-Afshar/omarchy/commit/419acda257ab45f4892f5fd139c60e05c9e4739d): Treat Pi's `system` theme as its unset default, so activation selects `omarchy-system`. Pi 1.5 writes `system` when no theme has been picked. Any other name, including `dark` and `light`, is left alone. Activation is `omarchy-theme-set-pi --activate`, which `install/user/theme.sh` runs during user finalization. A theme switch only refreshes the theme file, and there is no migration, so an existing Pi whose theme is `system` stays on `system`.
 
 ### 2. `pi/2-oh-my-pi-theme`
 
@@ -88,107 +91,7 @@ All on `Arash-Afshar/omarchy`, stacked in this order on `quattro` at `d5b32d24d`
   - Read omp's sign-ins from `agent.db`, following profiles and migrated XDG data, with a legacy `auth.json` fallback. The shared helpers serve the DeepSeek, MiniMax, Ollama, OpenCode, OpenRouter, Synthetic, Z.ai and Antigravity collectors; the new store test covers path resolution and credential selection. Generalises #16508.
   - Document that Pi's ChatGPT sign-in on `openai` is not counted yet.
 
-The original four usage ports were verified against pi 1.5.0 and omp 18.16.0: `pi auth check` and its flags exist, `kimi-coding` is Pi's provider id, and omp moves `agent.db` with `PI_CODING_AGENT_DIR`. The shared-store lookup also fixes the earlier Z.ai port's reliance on omp's legacy `auth.json` and default tree. This history cleanup preserves every code branch's final tree exactly; the live Omarchy validation below is still required.
-
-## Open items (need a live Omarchy machine)
-
-Everything below was either impossible to verify off an Omarchy install or
-needs a design decision. Each item says what is wrong and how to fix it.
-
-### 1. Pi's ChatGPT subscription usage is not counted (#17397, #17444, #8950)
-
-**Problem.** Pi 1.x signs in with ChatGPT on its `openai` provider and calls
-`openai-codex` legacy. Its sessions record those turns as
-`provider: "openai"`, `api: "openai-responses"`, exactly as they record an
-OpenAI API key. The Codex collector counts only `openai-codex`, so a Pi user
-on a ChatGPT plan sees Codex limits but no Codex usage. #17397 counts every
-Pi `openai` turn under Codex, which also bills API-key usage to the
-subscription. omp's `openai` is always an API key, and the scanner's
-`accept(provider, model, entry)` callback cannot tell a Pi row from an omp
-row.
-
-**Fix.**
-1. Give `scan_pi_sessions` a way to know the harness of a row: pass the root
-   (or a `harness` of `"pi"`/`"omp"` derived from it) into `accept`, or let
-   the Codex collector run a second scan over Pi-only roots
-   (`~/.pi/agent/sessions`, Pi's `sessionDir`, `PI_CODING_AGENT_SESSION_DIR`).
-   The second scan's acceptance must stay disjoint from the first, and its
-   prompts and sessions must not double-count with it; check how
-   `bookings` and `STATS` key sessions before choosing.
-2. In the Codex collector, accept a Pi row on `openai` with api
-   `openai-responses` only when Pi's `auth.json` `openai` entry is
-   `"type": "oauth"` (a ChatGPT sign-in). That reflects the current sign-in,
-   not each turn's, which is the best the session format allows; say so in
-   the README.
-3. Update the partition test: it states "pi's `openai` is an OpenAI API key,
-   which no collector bills". Add rows for Pi `openai`/`openai-responses`
-   with and without the ChatGPT sign-in.
-4. On a live machine, sign in to Pi with ChatGPT, run a few turns, and check
-   `omarchy-agent-usage-update --force` and the panel.
-
-#8950 (a Codex tab after Codex was uninstalled) is the same attribution
-working as designed: Pi's `openai-codex` usage is Codex subscription usage.
-Close it with that explanation once item 1 lands, or label the tab by
-subscription rather than by CLI.
-
-### 2. A local model cannot open in omp
-
-`omarchy-agent --local` points only Pi and OpenCode at the running local
-model (`omarchy-agent-local overlay`), so omp as the default falls back to
-Pi. omp loads extensions with `--extension` like Pi; confirm its model
-selection flags with `omp --help` on the installed version, then add an `omp`
-overlay in `omarchy-agent-local` and a case in `omarchy-agent`'s
-`use_local` block, then try it against a running local model.
-
-### 3. omp ownership drift between mise and a standalone binary (#14464)
-
-A standalone `omp` (its own updater, or `PI_INSTALL_DIR`) can sit at
-`~/.local/bin/omp`, where Omarchy also puts its mise launcher, and silently
-shadow the mise-owned copy. #14464 proposes a non-destructive warning in
-`omarchy-update-mise` before `mise up`. Needs a machine with both installs to
-reproduce; do not rewrite user binaries.
-
-### 4. Verify the branches on Omarchy
-
-The changes were checked on a development machine with GNU-only steps
-stubbed, which is not a substitute. On an Omarchy box with the stack
-checked out (`omarchy dev link`):
-
-- `./test/all`. In particular `test/cli` (the new `omp.json` template
-  assertion and the existing Pi theme checks), `default-agent-test`,
-  `theme-set-pi-test`, `theme-set-omp-test`, `agent-usage-omp-store-test`,
-  `agent-usage-partition-test` and `agent-usage-agy-harness-test`. The last
-  two could not run off Omarchy; the Antigravity case "takes omp's limits
-  from omp usage" failed there on untouched `quattro` too, so confirm it
-  passes on Linux before blaming the branch.
-- Theme: switch themes with Pi and omp open; both retint. Set
-  `PI_CODING_AGENT_DIR` in `~/.config/uwsm/env`, log in again, switch
-  themes, and check `<dir>/themes/omarchy-system.json`. Pick another theme
-  in Pi, run `install/user/theme.sh` (or re-provision), and check it stays.
-- omp: `omarchy-default-agent omp` installs omp and runs
-  `omp config set theme.dark|theme.light omarchy-system`; check
-  `omp config get theme.dark` and that the migration runs once for a user
-  who already had omp as default.
-- Launch: `omarchy agent` prompt "update" with Pi as default starts a session.
-- Usage: with omp signed in to DeepSeek, OpenRouter, Ollama Cloud, Z.ai,
-  MiniMax, Synthetic or OpenCode Go, the matching tab shows limits. Check
-  whether the desktop session sets `XDG_DATA_HOME`; if it does and
-  `~/.local/share/omp` exists, `agent.db` lives there.
-- Kimi: sign in with `/login kimi-coding` in Pi only; the Kimi tab shows
-  quota via `pi auth check`.
-
-### 5. Usage refresh cost on large Pi/omp histories (#15906, #12411)
-
-The panel rereads every Pi/omp session on each 15-minute refresh; #15906
-reports about 19 s per collector on a 6.9 GB `~/.omp/agent/sessions`. It adds
-a per-file index like the Claude collector's. Measure on a machine with a
-large history before and after; it conflicts with nothing above.
-
-### 6. Light themes in Pi (optional)
-
-Pi's theme schema has an optional `appearance` (`"dark"`/`"light"`) that it
-otherwise guesses from colours. Setting it from the Omarchy theme's light
-mode in `pi.json.tpl` would make light themes reliable.
+The original four usage ports were verified against pi 1.5.0 and omp 18.16.0: `pi auth check` and its flags exist, `kimi-coding` is Pi's provider id, and omp moves `agent.db` with `PI_CODING_AGENT_DIR`. The shared-store lookup also fixes the earlier Z.ai port's reliance on omp's legacy `auth.json` and default tree. This history cleanup preserves every code branch's final tree exactly.
 
 ## Upstream issues and PRs
 
@@ -203,13 +106,13 @@ State as of 2026-11-03.
 | #16507, #15892 omp Antigravity sign-in | Ported in branch 4 |
 | #16300, #15560 Z.ai provider ids | Ported in branch 4 |
 | #16431 Kimi via Pi | Ported in branch 4 |
-| #16508, #16085 Ollama key from omp's `agent.db` | Generalised to every collector in branch 4 |
+| #16508, #16085 Ollama key from omp's `agent.db` | Generalised to the collectors that read an omp sign-in, in branch 4 |
 | #8270 Pi on OpenRouter | Already fixed by #14040; pinned by a test in branch 4 |
 | #14550 `PI_CODING_AGENT_DIR`/`_SESSION_DIR` session roots | Already in `quattro` (`pi_session_roots()`); close |
 | #7194, #8345 `~/.config/pi/sessions` | Pi never uses that path by default; close |
 | #13836 link skills under `PI_CODING_AGENT_DIR` | Not needed: Pi reads `~/.agents/skills` from home |
 | #6982, #16775, #16783 skill links | General cleanup; Pi and omp already covered |
-| #17397, #17444, #8950 Pi `openai`/ChatGPT | Open item 1 |
+| #17397, #17444, #8950 Pi `openai`/ChatGPT | Not in these branches. Pi records a ChatGPT sign-in as `openai` / `openai-responses`, and the Codex collector counts only `openai-codex` |
 | #10330 dedicated Pi tab, #13845 omp tab | Conflict with the panel's count-under-the-billing-provider design that #14040 settled; recommend closing |
-| #14464 omp ownership drift | Open item 3 |
-| #15906, #12411 scan cost | Open item 5 |
+| #14464 omp ownership drift | Not in these branches |
+| #15906, #12411 scan cost | Not in these branches |

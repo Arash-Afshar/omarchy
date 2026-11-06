@@ -49,6 +49,12 @@ run "$ROOT/bin/omarchy-theme-set-pi" --activate
 jq -e '.theme == "dark" and .model == "keep-me"' "$settings" >/dev/null || fail "a user-chosen theme is kept" "$(cat "$settings")"
 pass "activation keeps a theme the user chose"
 
+# Pi 1.5 writes "system" when the user has not picked a theme.
+echo '{"theme":"system","model":"keep-me"}' >"$settings"
+run "$ROOT/bin/omarchy-theme-set-pi" --activate
+jq -e '.theme == "omarchy-system" and .model == "keep-me"' "$settings" >/dev/null || fail "Pi's system default becomes omarchy-system" "$(cat "$settings")"
+pass "activation replaces Pi's system default with omarchy-system"
+
 echo '{"model":"keep-me"}' >"$settings"
 chmod 640 "$settings"
 run "$ROOT/bin/omarchy-theme-set-pi" --activate
